@@ -26,6 +26,19 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Debug context
+        run: |
+          echo "repo=${{ github.repository }}"
+          echo "ref=${{ github.ref }}"
+          echo "event=${{ github.event_name }}"
+          echo "sha=${{ github.sha }}"
+          echo "actor=${{ github.actor }}"
+          echo "workflow=${{ github.workflow }}"
+          echo "AWS_REGION=${{ env.AWS_REGION }}"
+          echo "STACK_NAME=${{ env.STACK_NAME }}"
+          echo "Has AWS_DEPLOY_ROLE_ARN secret: ${{ secrets.AWS_DEPLOY_ROLE_ARN != '' }}"
+          echo "Has JWT_SECRET secret: ${{ secrets.JWT_SECRET != '' }}"
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -44,4 +57,3 @@ jobs:
           JWT_SECRET: ${{ env.JWT_SECRET }}
           STACK_NAME: ${{ env.STACK_NAME }}
           AWS_REGION: ${{ env.AWS_REGION }}
-
