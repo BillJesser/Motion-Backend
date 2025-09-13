@@ -1,7 +1,9 @@
-const AWS = require('aws-sdk');
+const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBDocumentClient, GetCommand } = require('@aws-sdk/lib-dynamodb');
 const { verifyPassword, signJwt } = require('../lib/crypto');
 
-const dynamo = new AWS.DynamoDB.DocumentClient();
+const client = new DynamoDBClient({});
+const dynamo = DynamoDBDocumentClient.from(client);
 const TABLE = process.env.USERS_TABLE;
 const JWT_SECRET = process.env.JWT_SECRET || '';
 
@@ -24,9 +26,7 @@ exports.handler = async (event) => {
     if (!email || !password) {
       return response(400, { message: 'email and password are required' });
     }
-    const user = await dynamo
-      .get({ TableName: TABLE, Key: { email } })
-      .promise();
+    const user = await dynamo.send(new GetCommand({ TableName: TABLE, Key: { email } }));
     if (!user || !user.Item) {
       return response(401, { message: 'Invalid credentials' });
     }
@@ -46,4 +46,3 @@ exports.handler = async (event) => {
     return response(500, { message: 'Internal Server Error' });
   }
 };
-

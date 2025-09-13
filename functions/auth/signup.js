@@ -1,7 +1,9 @@
-const AWS = require('aws-sdk');
+const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBDocumentClient, GetCommand, PutCommand } = require('@aws-sdk/lib-dynamodb');
 const { hashPassword } = require('../lib/crypto');
 
-const dynamo = new AWS.DynamoDB.DocumentClient();
+const client = new DynamoDBClient({});
+const dynamo = DynamoDBDocumentClient.from(client);
 const TABLE = process.env.USERS_TABLE;
 
 function response(statusCode, body) {
@@ -25,9 +27,7 @@ exports.handler = async (event) => {
     }
 
     // Check if user exists
-    const existing = await dynamo
-      .get({ TableName: TABLE, Key: { email } })
-      .promise();
+    const existing = await dynamo.send(new GetCommand({ TableName: TABLE, Key: { email } }));
     if (existing && existing.Item) {
       return response(409, { message: 'User already exists' });
     }
@@ -42,9 +42,7 @@ exports.handler = async (event) => {
       createdAt: new Date().toISOString()
     };
 
-    await dynamo
-      .put({ TableName: TABLE, Item: item, ConditionExpression: 'attribute_not_exists(email)' })
-      .promise();
+    await dynamo.send(new PutCommand({ TableName: TABLE, Item: item, ConditionExpression: 'attribute_not_exists(email)' }));
 
     return response(201, { message: 'User created', userId, email });
   } catch (err) {
@@ -52,4 +50,3 @@ exports.handler = async (event) => {
     return response(500, { message: 'Internal Server Error' });
   }
 };
-
