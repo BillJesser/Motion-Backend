@@ -1,6 +1,6 @@
-const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, GetCommand } = require('@aws-sdk/lib-dynamodb');
-const { verifyPassword, signJwt } = require('../lib/crypto');
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { verifyPassword, signJwt } from '../lib/crypto.js';
 
 const client = new DynamoDBClient({});
 const dynamo = DynamoDBDocumentClient.from(client);
@@ -19,7 +19,7 @@ function response(statusCode, body) {
   };
 }
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   try {
     const data = JSON.parse(event.body || '{}');
     const { email, password } = data;

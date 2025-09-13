@@ -30,7 +30,7 @@ class MotionBackendStack extends Stack {
       environment: commonEnv,
       timeout: Duration.seconds(10),
       bundling: {
-        format: 'cjs',
+        format: 'esm',
         target: 'node20',
         minify: true,
         sourceMap: false,
@@ -44,7 +44,7 @@ class MotionBackendStack extends Stack {
       environment: commonEnv,
       timeout: Duration.seconds(10),
       bundling: {
-        format: 'cjs',
+        format: 'esm',
         target: 'node20',
         minify: true,
         sourceMap: false,

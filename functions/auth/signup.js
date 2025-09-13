@@ -1,6 +1,7 @@
-const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, GetCommand, PutCommand } = require('@aws-sdk/lib-dynamodb');
-const { hashPassword } = require('../lib/crypto');
+import { randomUUID, randomBytes } from 'node:crypto';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { hashPassword } from '../lib/crypto.js';
 
 const client = new DynamoDBClient({});
 const dynamo = DynamoDBDocumentClient.from(client);
@@ -18,7 +19,7 @@ function response(statusCode, body) {
   };
 }
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   try {
     const data = JSON.parse(event.body || '{}');
     const { email, password } = data;
@@ -33,7 +34,7 @@ exports.handler = async (event) => {
     }
 
     const { salt, hash } = hashPassword(password);
-    const userId = (crypto => (crypto.randomUUID ? crypto.randomUUID() : require('crypto').randomBytes(16).toString('hex')))(require('crypto'));
+    const userId = (typeof randomUUID === 'function' ? randomUUID() : randomBytes(16).toString('hex'));
     const item = {
       email,
       userId,
