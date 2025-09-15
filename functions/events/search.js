@@ -47,6 +47,7 @@ export const handler = async (event) => {
     for (const p of prefixes) {
       const keyCond = ['gh5 = :gh'];
       const exprValues = { ':gh': p };
+      // Query by start time to reduce scan width; overlap checks are filtered below
       if (startEpoch && endEpoch) {
         keyCond.push('dateTime BETWEEN :start AND :end');
         exprValues[':start'] = startEpoch; exprValues[':end'] = endEpoch;
@@ -76,6 +77,20 @@ export const handler = async (event) => {
         return { ...it, _distanceMeters: d };
       })
       .filter(it => it._distanceMeters <= radiusMeters)
+      // If caller provided a time window, ensure event overlaps that window using start (dateTime) and endTime
+      .filter(it => {
+        if (!startEpoch && !endEpoch) return true;
+        const evStart = Number(it.dateTime || 0);
+        const evEnd = Number(it.endTime || it.dateTime || 0);
+        if (startEpoch && endEpoch) {
+          // Overlap if evStart <= end AND evEnd >= start
+          return evStart <= endEpoch && evEnd >= startEpoch;
+        } else if (startEpoch) {
+          // Event ends after start
+          return evEnd >= startEpoch;
+        }
+        return true;
+      })
       .sort((a,b) => a.dateTime - b.dateTime);
 
     return response(200, { center, radiusMiles, count: filtered.length, items: filtered });
@@ -84,4 +99,3 @@ export const handler = async (event) => {
     return response(500, { message: 'Internal Server Error' });
   }
 };
-

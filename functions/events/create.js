@@ -32,12 +32,15 @@ async function geocodeIfNeeded(coords, locationInput) {
 export const handler = async (event) => {
   try {
     const data = JSON.parse(event.body || '{}');
-    const { name, description, dateTime, createdByEmail, photoUrls, location: loc, coordinates } = data;
-    if (!name || !createdByEmail || !dateTime) {
-      return response(400, { message: 'name, createdByEmail, and dateTime are required' });
+    const { name, description, dateTime, endDateTime, endTime, createdByEmail, photoUrls, location: loc, coordinates } = data;
+    if (!name || !createdByEmail || !dateTime || !(endDateTime || endTime)) {
+      return response(400, { message: 'name, createdByEmail, dateTime (start) and endDateTime (or endTime) are required' });
     }
     const dt = Date.parse(dateTime);
     if (Number.isNaN(dt)) return response(400, { message: 'dateTime must be ISO-8601' });
+    const endParsed = endTime ? Number(endTime)*1000 : Date.parse(endDateTime);
+    if (Number.isNaN(endParsed)) return response(400, { message: 'endDateTime must be ISO-8601, or provide numeric endTime (epoch seconds)' });
+    if (endParsed < dt) return response(400, { message: 'end time must be after start time' });
 
     const coords = await geocodeIfNeeded(coordinates, loc);
     if (!coords) return response(400, { message: 'Provide coordinates or a geocodable address/zip' });
@@ -47,7 +50,8 @@ export const handler = async (event) => {
       name,
       description: description || '',
       createdByEmail,
-      dateTime: Math.floor(dt / 1000),
+      dateTime: Math.floor(dt / 1000), // start time (epoch seconds)
+      endTime: Math.floor(endParsed / 1000),
       location: loc || {},
       coordinates: { lat: coords.lat, lng: coords.lng },
       gh5: gh.slice(0, 5),
@@ -61,4 +65,3 @@ export const handler = async (event) => {
     return response(500, { message: 'Internal Server Error' });
   }
 };
-

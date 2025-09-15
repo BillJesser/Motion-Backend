@@ -97,6 +97,12 @@ class MotionBackendStack extends Stack {
       partitionKey: { name: 'gh5', type: AttributeType.STRING },
       sortKey: { name: 'dateTime', type: AttributeType.NUMBER }
     });
+    // Add a GSI to fetch events by creator email, sorted by start time
+    eventsTable.addGlobalSecondaryIndex({
+      indexName: 'ByCreatorTime',
+      partitionKey: { name: 'createdByEmail', type: AttributeType.STRING },
+      sortKey: { name: 'dateTime', type: AttributeType.NUMBER }
+    });
 
     // Amazon Location Place Index for geocoding zip/address to coordinates
     const placeIndex = new CfnPlaceIndex(this, 'PlaceIndex', {
@@ -142,6 +148,16 @@ class MotionBackendStack extends Stack {
       ]
     }));
 
+    const byUserEventsFn = new NodejsFunction(this, 'ByUserEventsFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/events/by-user.js',
+      handler: 'handler',
+      environment: { ...commonEventEnv },
+      timeout: Duration.seconds(15),
+      bundling: { format: 'esm', target: 'node20', minify: true }
+    });
+    eventsTable.grantReadData(byUserEventsFn);
+
     httpApi.addRoutes({
       path: '/events',
       methods: [HttpMethod.POST],
@@ -152,6 +168,12 @@ class MotionBackendStack extends Stack {
       path: '/events/search',
       methods: [HttpMethod.GET],
       integration: new HttpLambdaIntegration('SearchEventsIntegration', searchEventsFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/events/by-user',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('ByUserEventsIntegration', byUserEventsFn)
     });
 
     new CfnOutput(this, 'EventsTableName', { value: eventsTable.tableName });
