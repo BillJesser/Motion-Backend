@@ -6,6 +6,8 @@ import { Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { HttpApi, CorsHttpMethod, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import { CfnPlaceIndex } from 'aws-cdk-lib/aws-location';
+import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 
 class MotionBackendStack extends Stack {
   constructor(scope, id, props) {
@@ -81,6 +83,78 @@ class MotionBackendStack extends Stack {
 
     new CfnOutput(this, 'ApiEndpoint', { value: httpApi.apiEndpoint });
     new CfnOutput(this, 'UsersTableName', { value: usersTable.tableName });
+
+    // Events Table
+    const eventsTable = new Table(this, 'EventsTable', {
+      tableName: 'MotionEvents',
+      partitionKey: { name: 'eventId', type: AttributeType.STRING },
+      billingMode: BillingMode.PAY_PER_REQUEST,
+      removalPolicy: RemovalPolicy.RETAIN
+    });
+    // Add a GSI for geospatial + time queries. Partition by geohash prefix (length 5), sort by timestamp
+    eventsTable.addGlobalSecondaryIndex({
+      indexName: 'GeoTime',
+      partitionKey: { name: 'gh5', type: AttributeType.STRING },
+      sortKey: { name: 'dateTime', type: AttributeType.NUMBER }
+    });
+
+    // Amazon Location Place Index for geocoding zip/address to coordinates
+    const placeIndex = new CfnPlaceIndex(this, 'PlaceIndex', {
+      dataSource: 'Esri',
+      indexName: 'motion-place-index'
+    });
+
+    const commonEventEnv = {
+      EVENTS_TABLE: eventsTable.tableName,
+      PLACE_INDEX_NAME: placeIndex.indexName
+    };
+
+    const createEventFn = new NodejsFunction(this, 'CreateEventFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/events/create.js',
+      handler: 'handler',
+      environment: { ...commonEventEnv },
+      timeout: Duration.seconds(15),
+      bundling: { format: 'esm', target: 'node20', minify: true }
+    });
+    eventsTable.grantReadWriteData(createEventFn);
+    // Allow geocoding from Amazon Location
+    createEventFn.addToRolePolicy(new PolicyStatement({
+      actions: ['geo:SearchPlaceIndexForText'],
+      resources: [
+        `arn:aws:geo:${this.region}:${this.account}:place-index/${placeIndex.indexName}`
+      ]
+    }));
+
+    const searchEventsFn = new NodejsFunction(this, 'SearchEventsFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/events/search.js',
+      handler: 'handler',
+      environment: { ...commonEventEnv },
+      timeout: Duration.seconds(15),
+      bundling: { format: 'esm', target: 'node20', minify: true }
+    });
+    eventsTable.grantReadData(searchEventsFn);
+    searchEventsFn.addToRolePolicy(new PolicyStatement({
+      actions: ['geo:SearchPlaceIndexForText'],
+      resources: [
+        `arn:aws:geo:${this.region}:${this.account}:place-index/${placeIndex.indexName}`
+      ]
+    }));
+
+    httpApi.addRoutes({
+      path: '/events',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('CreateEventIntegration', createEventFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/events/search',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('SearchEventsIntegration', searchEventsFn)
+    });
+
+    new CfnOutput(this, 'EventsTableName', { value: eventsTable.tableName });
   }
 }
 
