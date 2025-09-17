@@ -331,9 +331,39 @@ Use ONLY the harvested sources provided below (and your general knowledge) to pr
     return null;
   }
 
+  // Extract YYYY-MM-DD and optional time from flexible date/datetime strings
+  function extractDateAndTime(s) {
+    if (!s || typeof s !== 'string') return null;
+    const t = s.trim();
+    // 1) Exact date
+    let m = t.match(/^(\d{4}-\d{2}-\d{2})$/);
+    if (m) return { date: m[1] };
+    // 2) Date followed by time (space or 'T')
+    m = t.match(/^(\d{4}-\d{2}-\d{2})[ T]+(.+)$/);
+    if (m) {
+      const hhmm = toHHMM(m[2]);
+      return { date: m[1], time: hhmm || undefined };
+    }
+    // 3) Try to find a date within the string
+    m = t.match(/(\d{4}-\d{2}-\d{2})/);
+    if (m) {
+      // Also try to find a time token nearby
+      const timeToken = t.match(/(\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))/i);
+      const hhmm = timeToken ? toHHMM(timeToken[0]) : undefined;
+      return { date: m[1], time: hhmm };
+    }
+    return null;
+  }
+
   const normalized = rawEvents.map(e => {
-    const nt = toHHMM(e.start_time);
-    const et = toHHMM(e.end_time);
+    // Normalize start date/time
+    const startDT = extractDateAndTime(e.start_date);
+    if (startDT?.date) e.start_date = startDT.date;
+    const nt = toHHMM(e.start_time) || startDT?.time || null;
+    // Normalize end date/time (optional)
+    const endDT = extractDateAndTime(e.end_date);
+    if (endDT?.date) e.end_date = endDT.date; else if (e.end_date) delete e.end_date; // drop unparsable end_date
+    const et = toHHMM(e.end_time) || endDT?.time || null;
     const base = {
       ...e,
       timezone: e.timezone || timezone,
