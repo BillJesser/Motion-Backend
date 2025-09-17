@@ -98,7 +98,10 @@ export const handler = async (event) => {
     const requestedTags = canonicalizeTags(qs.tags);
     if (requestedTags.length > 0) {
       const set = new Set(requestedTags);
-      filtered = filtered.filter(it => Array.isArray(it.tags) && it.tags.some(t => set.has(t)));
+      filtered = filtered.filter(it => {
+        const evTags = canonicalizeTags(Array.isArray(it.tags) ? it.tags : []);
+        return evTags.some(t => set.has(t));
+      });
     }
 
     return response(200, { center, radiusMiles, count: filtered.length, items: filtered });

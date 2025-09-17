@@ -12,25 +12,80 @@ export const ALLOWED_TAGS = [
   'Cultural',
   'Charity',
   'Drinks',
-  'Netwroking', // Note: preserved spelling from requirements
+  'Networking',
   'Wellness',
   'Lifestyle'
 ];
 
 const KEYWORDS = {
-  Concert: ['concert', 'live music', 'gig', 'band', 'dj', 'orchestra'],
-  Festival: ['festival', 'fair', 'carnival', 'fête'],
-  Theatre: ['theatre', 'theater', 'play', 'musical', 'stage'],
-  Market: ['market', 'farmers', 'bazaar', 'flea'],
-  Comedy: ['comedy', 'stand-up', 'standup', 'improv'],
-  Sports: ['sports', 'game', 'match', 'tournament', 'league', 'race', 'marathon'],
-  Outdoor: ['outdoor', 'hike', 'hiking', 'picnic', 'park', 'trail', 'camp'],
-  Cultural: ['cultural', 'heritage', 'museum', 'art', 'exhibit', 'gallery'],
-  Charity: ['charity', 'fundraiser', 'benefit', 'donation', 'nonprofit'],
-  Drinks: ['drinks', 'beer', 'wine', 'cocktail', 'brewery', 'bar', 'happy hour'],
-  Netwroking: ['networking', 'mixer', 'meetup', 'connect'], // user-provided tag spelling preserved
-  Wellness: ['wellness', 'yoga', 'meditation', 'fitness', 'health'],
-  Lifestyle: ['lifestyle', 'fashion', 'beauty', 'home', 'design']
+  Concert: [
+    'concert','live music','gig','band','dj','orchestra','symphony','recital','choir','choral','setlist','tour','show',
+    'headliner','opening act','support act','festival stage','rave','edm','electronic','hip hop','rap','rock','indie',
+    'punk','metal','jazz','blues','folk','country','bluegrass','singer-songwriter','acoustic','unplugged','residency',
+    'venue','tickets','mosh','pit','soundcheck','backline'
+  ],
+  Festival: [
+    'festival','fest','street fair','fair','carnival','parade','block party','mardi gras','oktoberfest','pride','food fest',
+    'beer fest','wine fest','film festival','music festival','arts festival','culture fest','lantern festival','harvest',
+    'dragon boat','diwali','holi','moon festival','solstice','market festival','night market','street festival','fete'
+  ],
+  Theatre: [
+    'theatre','theater','play','drama','musical','stage','broadway','off-broadway','shakespeare','matinee','performance',
+    'cast','tickets','box office','black box','rehearsal','opera','operetta','ballet','dance theatre','monologue',
+    'improv theatre','script reading','table read','curtain call','orchestra pit','mezzanine','balcony','usher'
+  ],
+  Market: [
+    'market','farmers market','farmers','bazaar','flea','swap meet','craft fair','artisan market','makers market','night market',
+    'pop-up','popup','vendor','stall','booth','handmade','vintage','thrift','antique','food hall','food market','street market',
+    'mercado','produce','baked goods','artisan','locally made','crafts'
+  ],
+  Comedy: [
+    'comedy','stand-up','standup','improv','open mic','roast','sketch','satire','parody','comic','humor','laughs','comedic',
+    'laugh factory','comedy club','headline set','mc','host','crowd work','one-liner','bits','banter','riff','giggle','chuckle'
+  ],
+  Sports: [
+    'sports','game','match','tournament','league','playoffs','finals','championship','race','marathon','half marathon','5k','10k',
+    'triathlon','duathlon','ironman','soccer','football','basketball','baseball','softball','hockey','lacrosse','rugby','cricket',
+    'tennis','pickleball','badminton','table tennis','volleyball','golf','disc golf','bowling','boxing','mma','wrestling','fencing',
+    'swim','swimming','diving','water polo','rowing','crew','sailing','surfing','skiing','snowboard','snowboarding','skating',
+    'ice skating','figure skating','track','field','athletics','crossfit','strength','powerlifting','cycling','biking','mountain bike',
+    'bmx','motorsport','motocross','karting','esports','stadium','arena','ballpark','court','pitch','rink','field','gym'
+  ],
+  Outdoor: [
+    'outdoor','hike','hiking','picnic','park','trail','camp','camping','campfire','backpacking','kayak','canoe','paddle','paddleboard',
+    'sup','rafting','climb','climbing','bouldering','mountaineering','trek','nature walk','birding','wildlife','stargazing','beach',
+    'bonfire','orchard','pumpkin patch','farm tour','garden','gardening','cleanup','conservation','outdoors','national park','state park'
+  ],
+  Cultural: [
+    'cultural','heritage','tradition','traditional','ethnic','multicultural','diaspora','folklore','folk dance','world music','cuisine',
+    'cultural center','language','history','historical','museum','art','exhibit','gallery','curator','lecture','talk','workshop',
+    'film screening','international','global','customs','ritual','ceremony','cultural festival','storytelling','poetry','literary'
+  ],
+  Charity: [
+    'charity','fundraiser','benefit','donation','donate','nonprofit','non-profit','giveback','for a cause','cause','relief','aid',
+    'charitable','drive','food drive','toy drive','book drive','blood drive','auction','silent auction','gala','banquet','philanthropy',
+    'volunteer','volunteering','service','charity run','charity walk','telethon'
+  ],
+  Drinks: [
+    'drinks','beer','wine','cocktail','brewery','bar','happy hour','taproom','mixology','distillery','cidery','meadery','tasting',
+    'flight','pairing','sommelier','vinyl night','trivia night','pub','speakeasy','nightcap','bartender','craft beer','ipa','stout',
+    'lager','pilsner','sour','cabernet','merlot','pinot','rose','sparkling','bubbles'
+  ],
+  Networking: [
+    'networking','mixer','meetup','connect','professional','career','industry','coworking','co-working','founders','entrepreneurs',
+    'startup','pitch night','demo day','happy hour networking','roundtable','panel','fireside chat','speed networking','job fair',
+    'hiring event','recruiting','alumni','community meetup','link-up','schmooze','social hour','business cards','linkedin'
+  ],
+  Wellness: [
+    'wellness','yoga','meditation','fitness','health','pilates','spin','zumba','bootcamp','run club','wellbeing','mindfulness',
+    'nutrition','healthy cooking','sound bath','breathwork','stretch','mobility','crossfit','barre','aerobics','tai chi','qigong',
+    'spa','recovery','mental health','self-care','holistic','wellness retreat','detox'
+  ],
+  Lifestyle: [
+    'lifestyle','fashion','beauty','home','design','home decor','interior','interior design','diy','gardening','sustainability',
+    'eco','minimalism','vintage style','wardrobe','styling','runway','fashion week','thrifting','brunch','influencer','blogger',
+    'parenting','family','pets','dog-friendly','cat cafe','travel','photography','plants','houseplants','crafting','maker'
+  ]
 };
 
 function textFromLocation(loc) {
@@ -72,12 +127,13 @@ export function selectTags({ title, location }) {
   return ranked;
 }
 
-// Case-insensitive canonicalization to allowed tags, with a helpful alias
+// Case-insensitive canonicalization to allowed tags, with helpful aliases
 export function canonicalizeTags(input) {
   if (!input) return [];
   const alias = new Map([
-    // common misspelling fix to match provided list
-    ['networking', 'Netwroking']
+    // Back-compat and common misspelling fixes
+    ['netwroking', 'Networking'],
+    ['networking', 'Networking']
   ]);
   const lowerToTag = new Map(ALLOWED_TAGS.map(t => [t.toLowerCase(), t]));
   const parts = Array.isArray(input) ? input : String(input).split(',');

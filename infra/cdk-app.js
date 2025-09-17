@@ -176,6 +176,25 @@ class MotionBackendStack extends Stack {
       integration: new HttpLambdaIntegration('ByUserEventsIntegration', byUserEventsFn)
     });
 
+    // AI-powered web search for events
+    const searchAiFn = new NodejsFunction(this, 'SearchAiEventsFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/events/search-ai.js',
+      handler: 'handler',
+      environment: {
+        TOGETHER_API_KEY: process.env.TOGETHER_API_KEY ?? '',
+        TAVILY_API_KEY: process.env.TAVILY_API_KEY ?? ''
+      },
+      timeout: Duration.seconds(60),
+      bundling: { format: 'esm', target: 'node20', minify: true }
+    });
+
+    httpApi.addRoutes({
+      path: '/events/search-ai',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('SearchAiEventsIntegration', searchAiFn)
+    });
+
     new CfnOutput(this, 'EventsTableName', { value: eventsTable.tableName });
   }
 }
