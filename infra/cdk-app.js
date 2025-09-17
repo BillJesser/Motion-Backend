@@ -2,7 +2,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { Stack, CfnOutput, RemovalPolicy, Duration } from 'aws-cdk-lib';
 import { AttributeType, BillingMode, Table } from 'aws-cdk-lib/aws-dynamodb';
-import { Runtime } from 'aws-cdk-lib/aws-lambda';
+import { Runtime, FunctionUrlAuthType, HttpMethod as LambdaHttpMethod } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { HttpApi, CorsHttpMethod, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
@@ -196,6 +196,18 @@ class MotionBackendStack extends Stack {
       methods: [HttpMethod.GET],
       integration: new HttpLambdaIntegration('SearchAiEventsIntegration', searchAiFn)
     });
+
+    // Also expose a Lambda Function URL for longer-running requests (bypasses API GW 30s limit)
+    const searchAiFnUrl = searchAiFn.addFunctionUrl({
+      authType: FunctionUrlAuthType.NONE,
+      cors: {
+        allowedOrigins: ['*'],
+        allowedHeaders: ['*'],
+        allowedMethods: [LambdaHttpMethod.GET]
+      }
+    });
+
+    new CfnOutput(this, 'SearchAiFunctionUrl', { value: searchAiFnUrl.url });
 
     new CfnOutput(this, 'EventsTableName', { value: eventsTable.tableName });
   }
