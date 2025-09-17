@@ -288,16 +288,66 @@ Use ONLY the harvested sources provided below (and your general knowledge) to pr
 
   const rawEvents = await modelToEvents(messages);
 
-  const normalized = rawEvents.map(e => ({
-    ...e,
-    timezone: e.timezone || timezone,
-    location: {
-      ...e.location,
-      city,
-      state: region_or_state,
-      country
+  // Normalize time strings to HH:MM 24h or drop if unparsable
+  function toHHMM(s) {
+    if (!s || typeof s !== 'string') return null;
+    const t = s.trim().toLowerCase().replace(/\s+/g, '');
+    // Formats: HH:MM, HH:MM:SS, H:MM, HHMM, h(am|pm), h:mm(am|pm)
+    // 1) h:mm(am|pm) or h(am|pm)
+    let m = t.match(/^(\d{1,2})(?::?(\d{2}))?(am|pm)$/);
+    if (m) {
+      let h = parseInt(m[1], 10);
+      let min = m[2] ? parseInt(m[2], 10) : 0;
+      const ampm = m[3];
+      if (ampm === 'pm' && h !== 12) h += 12;
+      if (ampm === 'am' && h === 12) h = 0;
+      if (h >= 0 && h <= 23 && min >= 0 && min <= 59) return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
+      return null;
     }
-  }));
+    // 2) HH:MM:SS
+    m = t.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+    if (m) {
+      const h = parseInt(m[1], 10), min = parseInt(m[2], 10);
+      if (h>=0&&h<=23&&min>=0&&min<=59) return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
+      return null;
+    }
+    // 3) HH:MM (already 24h)
+    m = t.match(/^(\d{1,2}):(\d{2})$/);
+    if (m) {
+      const h = parseInt(m[1], 10), min = parseInt(m[2], 10);
+      if (h>=0&&h<=23&&min>=0&&min<=59) return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
+      return null;
+    }
+    // 4) HHMM
+    m = t.match(/^(\d{3,4})$/);
+    if (m) {
+      const num = m[1];
+      const h = parseInt(num.length===3? num.slice(0,1) : num.slice(0,2), 10);
+      const min = parseInt(num.slice(-2), 10);
+      if (h>=0&&h<=23&&min>=0&&min<=59) return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
+      return null;
+    }
+    // Otherwise, strip any timezone text like "7pmest" -> handled above
+    return null;
+  }
+
+  const normalized = rawEvents.map(e => {
+    const nt = toHHMM(e.start_time);
+    const et = toHHMM(e.end_time);
+    const base = {
+      ...e,
+      timezone: e.timezone || timezone,
+      location: {
+        ...e.location,
+        city,
+        state: region_or_state,
+        country
+      }
+    };
+    if (nt) base.start_time = nt; else delete base.start_time;
+    if (et) base.end_time = et; else delete base.end_time;
+    return base;
+  });
 
   const deduped = dedupeEvents(normalized);
 
