@@ -202,7 +202,7 @@ async function modelToEvents(messages) {
 }
 
 // --- Public orchestrator ---
-export async function findEvents({ city, region_or_state, country, zipcode, start_date, end_date, timezone }) {
+export async function findEvents({ city, region_or_state, country, zipcode, start_date, end_date, timezone, debug = false }) {
   const results = await searchWeb({ city, region_or_state, country, start_date, end_date });
 
   const enriched = await Promise.all(
@@ -287,6 +287,21 @@ Use ONLY the harvested sources provided below (and your general knowledge) to pr
   );
 
   const rawEvents = await modelToEvents(messages);
+  if (debug) {
+    console.log('AI raw events (count):', Array.isArray(rawEvents) ? rawEvents.length : 'not-array');
+    if (Array.isArray(rawEvents) && rawEvents.length > 0) {
+      const sample = rawEvents.slice(0, 3).map((e, i) => ({
+        i,
+        title: e.title,
+        start_date: e.start_date,
+        end_date: e.end_date,
+        start_time: e.start_time,
+        end_time: e.end_time,
+        source_url: e.source_url
+      }));
+      console.log('AI raw sample (first 3):', JSON.stringify(sample));
+    }
+  }
 
   // Normalize time strings to HH:MM 24h or drop if unparsable
   function toHHMM(s) {
@@ -376,6 +391,15 @@ Use ONLY the harvested sources provided below (and your general knowledge) to pr
     };
     if (nt) base.start_time = nt; else delete base.start_time;
     if (et) base.end_time = et; else delete base.end_time;
+    if (debug) {
+      console.log('Normalized event times:', {
+        title: base.title,
+        start_date: base.start_date,
+        start_time: base.start_time,
+        end_date: base.end_date,
+        end_time: base.end_time
+      });
+    }
     return base;
   });
 
@@ -386,6 +410,27 @@ Use ONLY the harvested sources provided below (and your general knowledge) to pr
   let finalEvents = deduped;
   if (!valid) {
     console.error('Validation errors:', validateEvents.errors);
+    if (debug) {
+      // Print focused context for the indices referenced by the errors
+      const idxs = Array.from(new Set((validateEvents.errors || [])
+        .map(e => {
+          const m = String(e.instancePath || '').match(/^\/(\d+)/);
+          return m ? Number(m[1]) : null;
+        })
+        .filter(v => v !== null)));
+      for (const i of idxs) {
+        const ev = deduped[i];
+        console.log('Invalid event context', {
+          i,
+          title: ev?.title,
+          start_date: ev?.start_date,
+          start_time: ev?.start_time,
+          end_date: ev?.end_date,
+          end_time: ev?.end_time,
+          source_url: ev?.source_url
+        });
+      }
+    }
     finalEvents = deduped.filter(ev =>
       ev?.title &&
       ev?.start_date?.match(/^\d{4}-\d{2}-\d{2}$/) &&
@@ -428,7 +473,8 @@ export const handler = async (event) => {
       return response(500, { message: 'Tavily API key not configured' });
     }
 
-    const items = await findEvents({ city, region_or_state, country, zipcode, start_date, end_date, timezone });
+    const debug = ['1','true','yes','on'].includes(String(qs.debug || '').toLowerCase());
+    const items = await findEvents({ city, region_or_state, country, zipcode, start_date, end_date, timezone, debug });
     return response(200, { count: items.length, items });
   } catch (err) {
     console.error('Search AI events error', err);
