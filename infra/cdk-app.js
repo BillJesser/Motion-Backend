@@ -186,7 +186,9 @@ class MotionBackendStack extends Stack {
         TAVILY_API_KEY: process.env.TAVILY_API_KEY ?? ''
       },
       timeout: Duration.seconds(60),
-      bundling: { format: 'esm', target: 'node20', minify: true }
+      // Cheerio/Ajv pull in modules that use require('buffer') internally.
+      // Use CJS bundling for this function to avoid ESM dynamic-require errors in Lambda.
+      bundling: { format: 'cjs', target: 'node20', minify: true }
     });
 
     httpApi.addRoutes({
