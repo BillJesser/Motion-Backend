@@ -3,6 +3,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { LocationClient, SearchPlaceIndexForTextCommand } from '@aws-sdk/client-location';
 import { encodeGeohash } from '../lib/geohash.js';
+import { selectTags } from '../lib/classify.js';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const location = new LocationClient({});
@@ -56,7 +57,9 @@ export const handler = async (event) => {
       coordinates: { lat: coords.lat, lng: coords.lng },
       gh5: gh.slice(0, 5),
       geohash: gh,
-      photoUrls: Array.isArray(photoUrls) ? photoUrls : []
+      photoUrls: Array.isArray(photoUrls) ? photoUrls : [],
+      // classify up to 3 tags from allowed list based on title and location
+      tags: selectTags({ title: name, location: loc || {} })
     };
     await ddb.send(new PutCommand({ TableName: TABLE, Item: item }));
     return response(201, { message: 'Event created', eventId: item.eventId });

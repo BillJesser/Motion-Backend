@@ -2,6 +2,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { LocationClient, SearchPlaceIndexForTextCommand } from '@aws-sdk/client-location';
 import { encodeGeohash, expandNeighbors } from '../lib/geohash.js';
+import { canonicalizeTags } from '../lib/classify.js';
 import { haversineMeters } from '../lib/geo.js';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -70,7 +71,7 @@ export const handler = async (event) => {
     const unique = Array.from(map.values());
 
     // Filter by precise radius and sort by dateTime ascending
-    const filtered = unique
+    let filtered = unique
       .map(it => {
         const c = it.coordinates || {};
         const d = (typeof c.lat==='number'&&typeof c.lng==='number') ? haversineMeters(center.lat, center.lng, c.lat, c.lng) : Infinity;
@@ -92,6 +93,13 @@ export const handler = async (event) => {
         return true;
       })
       .sort((a,b) => a.dateTime - b.dateTime);
+
+    // Optional: filter by tags (comma-separated), matches if any tag overlaps
+    const requestedTags = canonicalizeTags(qs.tags);
+    if (requestedTags.length > 0) {
+      const set = new Set(requestedTags);
+      filtered = filtered.filter(it => Array.isArray(it.tags) && it.tags.some(t => set.has(t)));
+    }
 
     return response(200, { center, radiusMiles, count: filtered.length, items: filtered });
   } catch (err) {
