@@ -3,7 +3,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { LocationClient, SearchPlaceIndexForTextCommand } from '@aws-sdk/client-location';
 import { encodeGeohash } from '../lib/geohash.js';
-import { selectTags } from '../lib/classify.js';
+import { selectTags, canonicalizeTags } from '../lib/classify.js';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const location = new LocationClient({});
@@ -46,6 +46,12 @@ export const handler = async (event) => {
     const coords = await geocodeIfNeeded(coordinates, loc);
     if (!coords) return response(400, { message: 'Provide coordinates or a geocodable address/zip' });
     const gh = encodeGeohash(coords.lat, coords.lng, 6);
+    // Tags: use provided (normalized) or derive via classifier
+    const providedTags = canonicalizeTags(data.tags);
+    const tags = (providedTags.length > 0
+      ? providedTags
+      : selectTags({ title: name, location: loc || {} })
+    ).slice(0, 3);
     const item = {
       eventId: randomUUID(),
       name,
@@ -58,8 +64,8 @@ export const handler = async (event) => {
       gh5: gh.slice(0, 5),
       geohash: gh,
       photoUrls: Array.isArray(photoUrls) ? photoUrls : [],
-      // classify up to 3 tags from allowed list based on title and location
-      tags: selectTags({ title: name, location: loc || {} })
+      // Up to 3 allowed tags, from input or classifier
+      tags
     };
     await ddb.send(new PutCommand({ TableName: TABLE, Item: item }));
     return response(201, { message: 'Event created', eventId: item.eventId });
