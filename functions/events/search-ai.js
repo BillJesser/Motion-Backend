@@ -90,22 +90,74 @@ function dedupeEvents(events) {
   });
 }
 
-// --- Tavily search ---
-async function searchWeb({ city, region_or_state, country, start_date, end_date }) {
-  const q = `events ${city} ${region_or_state} ${country} between ${start_date} and ${end_date} site:(eventbrite.com OR ticketmaster.com OR bandsintown.com OR meetup.com OR official venue site)`;
-  const res = await fetch(TAVILY_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      api_key: process.env.TAVILY_API_KEY || '',
-      query: q,
-      include_answer: false,
-      max_results: 12
-    })
-  });
-  if (!res.ok) throw new Error(`Tavily search failed: ${res.status}`);
-  const data = await res.json();
-  return (data?.results || []).map(r => ({ title: r.title, snippet: r.content, url: r.url }));
+// --- Local-first Tavily search ---
+const BLOCK_DOMAINS = [
+  'eventbrite.com','ticketmaster.com','livenation.com','bandsintown.com','meetup.com','facebook.com','instagram.com',
+  'allevents.in','eventful.com','stubhub.com','tickpick.com','vividseats.com','songkick.com'
+];
+
+function getDomain(url) {
+  try { return new URL(url).hostname.replace(/^www\./,''); } catch { return ''; }
+}
+
+function buildLocalQueries({ city, region_or_state, zipcode, country, start_date, end_date }) {
+  const place = `${city} ${region_or_state || ''} ${zipcode || ''} ${country}`.trim();
+  const local1 = `(${city} ${region_or_state}) (events OR calendar) site:(.gov OR .us OR .org OR .edu)`;
+  const local2 = `(${city} ${region_or_state}) (events OR calendar) site:(library.* OR parks.* OR recreation.* OR community.* OR chamber.* OR downtown.* OR museum.* OR arts.* OR tourism.* OR visitors.* OR cvb.*)`;
+  const local3 = `(${city} ${region_or_state}) (events OR calendar) site:(.news OR .local OR patch.com OR gazette.* OR journal.* OR times.*)`;
+  const genericLocal = `events calendar ${place} between ${start_date} and ${end_date} -eventbrite -ticketmaster -meetup -facebook -instagram`;
+  return [local1, local2, local3, genericLocal];
+}
+
+function scoreLocal(url, title, { city, zipcode }) {
+  const d = getDomain(url).toLowerCase();
+  const path = (() => { try { return new URL(url).pathname.toLowerCase(); } catch { return ''; } })();
+  const t = String(title || '').toLowerCase();
+  let s = 0;
+  if (d.endsWith('.gov') || d.endsWith('.us') || d.endsWith('.edu') || d.endsWith('.org')) s += 4;
+  if (path.includes('/events') || path.includes('/calendar')) s += 3;
+  if (d.includes('library') || d.includes('parks') || d.includes('recreation') || d.includes('community') || d.includes('chamber') || d.includes('downtown') || d.includes('museum') || d.includes('arts') || d.includes('tourism') || d.includes('visitors') || d.includes('cvb')) s += 3;
+  if (zipcode && (t.includes(zipcode) || path.includes(zipcode))) s += 2;
+  if (city && (d.includes(city.toLowerCase().replace(/\s+/g,'-')) || d.includes(city.toLowerCase().replace(/\s+/g,'')) || t.includes(city.toLowerCase()))) s += 2;
+  if (BLOCK_DOMAINS.some(b => d.endsWith(b))) s -= 5;
+  return s;
+}
+
+async function searchWeb({ city, region_or_state, zipcode, country, start_date, end_date, maxResults = 12, preferLocal = true, debug = false }) {
+  const queries = preferLocal ? buildLocalQueries({ city, region_or_state, zipcode, country, start_date, end_date }) : [
+    `events ${city} ${region_or_state} ${zipcode || ''} ${country} between ${start_date} and ${end_date}`
+  ];
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 10000);
+  try {
+    const reqs = queries.map(q => fetch(TAVILY_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: process.env.TAVILY_API_KEY || '', query: q, include_answer: false, max_results: Math.max(1, Math.min(12, Number(maxResults) || 12)) }),
+      signal: controller.signal
+    }).then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })));
+    const outs = await Promise.all(reqs);
+    const combined = [];
+    for (const o of outs) {
+      for (const r of (o?.results || [])) combined.push({ title: r.title, snippet: r.content, url: r.url });
+    }
+    const byUrl = new Map();
+    for (const r of combined) if (r.url) byUrl.set(r.url, r);
+    let arr = Array.from(byUrl.values());
+    const scored = arr.map(r => ({ ...r, _domain: getDomain(r.url), _score: scoreLocal(r.url, r.title, { city, zipcode }) }));
+    const localCandidates = scored.filter(x => x._score > 0 && !BLOCK_DOMAINS.some(b => x._domain.endsWith(b)));
+    let picked;
+    if (preferLocal && localCandidates.length >= Math.min(4, maxResults)) {
+      picked = localCandidates.sort((a,b) => b._score - a._score).slice(0, maxResults);
+    } else {
+      picked = scored.sort((a,b) => b._score - a._score).slice(0, maxResults);
+    }
+    if (debug) {
+      console.log('Search candidates (local-first):', picked.map(p => ({ url: p.url, domain: p._domain, score: p._score })));
+    }
+    return picked.map(({ _domain, _score, ...rest }) => rest);
+  } finally {
+    clearTimeout(id);
+  }
 }
 
 // --- Fetch & skim each page for better context (meta tags etc.) ---
@@ -202,21 +254,22 @@ async function modelToEvents(messages) {
 }
 
 // --- Public orchestrator ---
-export async function findEvents({ city, region_or_state, country, zipcode, start_date, end_date, timezone, debug = false }) {
-  const results = await searchWeb({ city, region_or_state, country, start_date, end_date });
+export async function findEvents({ city, region_or_state, country, zipcode, start_date, end_date, timezone, debug = false, preferLocal = true }) {
+  const results = await searchWeb({ city, region_or_state, zipcode, country, start_date, end_date, preferLocal, debug });
 
   const enriched = await Promise.all(
     results.map(async r => ({ ...r, meta: await enrichFromPage(r.url) }))
   );
 
   const SYSTEM_PROMPT = `
-You are an assistant that finds real-world local public events (concerts, festivals, shows, markets, etc.) for a given place and time window.
+You are an assistant that finds real-world LOCAL public events (concerts, festivals, shows, markets, etc.) for a given place and time window with a strong preference for local community sources.
 Return STRICT JSON ONLY (no prose) as an array of events. Follow the output schema exactly. If nothing is found, return [].
 
 Rules:
 - Use the requested timezone for dates/times.
 - Normalize: dates = YYYY-MM-DD, times = HH:MM (24h).
-- Prefer official or reputable sources (venues, organizers, ticketing sites).
+- Strongly prefer LOCAL official/community sources: city/county (.gov/.us), libraries, parks & recreation, community/downtown/chamber, museums/arts, tourism/visitors/CVB, and local news sites.
+- Deprioritize large aggregators (Eventbrite, Ticketmaster, Meetup, Bandsintown, Facebook, Instagram). Use them only if no strong local source exists.
 - De-duplicate by (title + start_date + venue).
 - If any field is unknown, omit the field rather than guessing.
 - Include a reliable source_url for each event whenever possible.
@@ -479,7 +532,8 @@ export const handler = async (event) => {
     }
 
     const debug = ['1','true','yes','on'].includes(String(qs.debug || '').toLowerCase());
-    const items = await findEvents({ city, region_or_state, country, zipcode, start_date, end_date, timezone, debug });
+    const preferLocal = !['0','false','no','off'].includes(String(qs.preferLocal || '1').toLowerCase());
+    const items = await findEvents({ city, region_or_state, country, zipcode, start_date, end_date, timezone, debug, preferLocal });
     return response(200, { count: items.length, items });
   } catch (err) {
     console.error('Search AI events error', err);
