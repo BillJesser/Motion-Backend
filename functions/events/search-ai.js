@@ -346,6 +346,10 @@ Use ONLY the harvested sources provided below (and your general knowledge) to pr
     return null;
   }
 
+  function isValidDateYYYYMMDD(s) {
+    return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+  }
+
   // Extract YYYY-MM-DD and optional time from flexible date/datetime strings
   function extractDateAndTime(s) {
     if (!s || typeof s !== 'string') return null;
@@ -377,7 +381,7 @@ Use ONLY the harvested sources provided below (and your general knowledge) to pr
     const nt = toHHMM(e.start_time) || startDT?.time || null;
     // Normalize end date/time (optional)
     const endDT = extractDateAndTime(e.end_date);
-    if (endDT?.date) e.end_date = endDT.date; else if (e.end_date) delete e.end_date; // drop unparsable end_date
+    if (endDT?.date) e.end_date = endDT.date; else if (e.end_date !== undefined) e.end_date = undefined; // drop empty/invalid end_date
     const et = toHHMM(e.end_time) || endDT?.time || null;
     const base = {
       ...e,
@@ -391,6 +395,7 @@ Use ONLY the harvested sources provided below (and your general knowledge) to pr
     };
     if (nt) base.start_time = nt; else delete base.start_time;
     if (et) base.end_time = et; else delete base.end_time;
+    if (!isValidDateYYYYMMDD(base.end_date)) delete base.end_date; // remove empty string or invalid end_date
     if (debug) {
       console.log('Normalized event times:', {
         title: base.title,
