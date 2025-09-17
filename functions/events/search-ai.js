@@ -1,9 +1,6 @@
 import { load as loadHtml } from 'cheerio';
 import Ajv from 'ajv';
-import Together from 'together-ai';
 import { canonicalizeTags, selectTags, ALLOWED_TAGS } from '../lib/classify.js';
-
-const together = new Together({ apiKey: process.env.TOGETHER_API_KEY || '' });
 
 // --- Config ---
 const MODEL = 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo';
@@ -176,14 +173,23 @@ ${harvestedBlock}
 
 // --- Call Together.ai and force JSON ---
 async function modelToEvents(messages) {
-  const completion = await together.chat.completions.create({
-    model: MODEL,
-    temperature: 0.2,
-    max_tokens: 1200,
-    response_format: { type: 'json_object' },
-    messages
+  const res = await fetch('https://api.together.xyz/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.TOGETHER_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      temperature: 0.2,
+      max_tokens: 1200,
+      response_format: { type: 'json_object' },
+      messages
+    })
   });
-  const text = completion.choices?.[0]?.message?.content || '[]';
+  if (!res.ok) throw new Error(`Together API failed: ${res.status}`);
+  const completion = await res.json();
+  const text = completion?.choices?.[0]?.message?.content || '[]';
   let parsed;
   try {
     parsed = JSON.parse(text);
