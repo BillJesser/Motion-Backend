@@ -96,17 +96,73 @@ const BLOCK_DOMAINS = [
   'allevents.in','eventful.com','stubhub.com','tickpick.com','vividseats.com','songkick.com'
 ];
 
+const LOCAL_KEYWORD_HINTS = ['library','parks','recreation','community','chamber','downtown','museum','arts','tourism','visitors','cvb','visit','discover','explore','experience','awesome','mainstreet','heritage','culture'];
+
 function getDomain(url) {
   try { return new URL(url).hostname.replace(/^www\./,''); } catch { return ''; }
 }
 
-function buildLocalQueries({ city, region_or_state, zipcode, country, start_date, end_date }) {
-  const place = `${city} ${region_or_state || ''} ${zipcode || ''} ${country}`.trim();
-  const local1 = `(${city} ${region_or_state}) (events OR calendar) site:(.gov OR .us OR .org OR .edu)`;
-  const local2 = `(${city} ${region_or_state}) (events OR calendar) site:(library.* OR parks.* OR recreation.* OR community.* OR chamber.* OR downtown.* OR museum.* OR arts.* OR tourism.* OR visitors.* OR cvb.*)`;
-  const local3 = `(${city} ${region_or_state}) (events OR calendar) site:(.news OR .local OR patch.com OR gazette.* OR journal.* OR times.*)`;
-  const genericLocal = `events calendar ${place} between ${start_date} and ${end_date} -eventbrite -ticketmaster -meetup -facebook -instagram`;
-  return [local1, local2, local3, genericLocal];
+function buildLocalQueries({ city, region_or_state, zipcode, country, start_date, end_date, radiusMiles }) {
+  const normalizedCity = (city || '').trim();
+  const normalizedState = (region_or_state || '').trim();
+  const normalizedZip = (zipcode || '').trim();
+  const placeParts = [normalizedCity, normalizedState, normalizedZip, country].filter(Boolean);
+  const place = placeParts.join(' ').trim();
+  const radius = Number(radiusMiles) || 0;
+  const radiusLabel = radius > 0 ? `${radius} mile${radius === 1 ? '' : 's'}` : '';
+  const timeframe = start_date && end_date ? `between ${start_date} and ${end_date}` : '';
+  const tourismKeywords = '("visit" OR "discover" OR "explore" OR "experience" OR "awesome" OR "tourism" OR "visitors" OR "cvb" OR "downtown" OR "chamber")';
+
+  const baseQueries = [
+    `(${normalizedCity} ${normalizedState}) (events OR calendar) site:(.gov OR .us OR .org OR .edu)`,
+    `(${normalizedCity} ${normalizedState}) (events OR calendar) site:(library.* OR parks.* OR recreation.* OR community.* OR chamber.* OR downtown.* OR museum.* OR arts.* OR tourism.* OR visitors.* OR cvb.* OR visit.* OR discover.* OR explore.* OR experience.* OR awesome.*)`,
+    `(${normalizedCity} ${normalizedState}) (events OR calendar) site:(.news OR .local OR patch.com OR gazette.* OR journal.* OR times.*)`
+  ];
+  const queries = [...baseQueries];
+
+  if (place) {
+    const genericLocal = `events calendar ${place} ${timeframe}`.replace(/\s+/g, ' ').trim();
+    queries.push(`${genericLocal} -eventbrite -ticketmaster -meetup -facebook -instagram`);
+  }
+
+  if (normalizedCity && normalizedState) {
+    queries.push(`("${normalizedCity}" "${normalizedState}") (events OR calendar) ${tourismKeywords}`);
+  }
+
+  if (normalizedZip) {
+    queries.push(`(${normalizedZip} OR "${normalizedCity} ${normalizedZip}") (events OR calendar) ${tourismKeywords}`);
+  }
+
+  if (normalizedCity) {
+    queries.push(`"visit ${normalizedCity}" (events OR calendar)`);
+    queries.push(`"discover ${normalizedCity}" (events OR calendar)`);
+    queries.push(`"explore ${normalizedCity}" (events OR calendar)`);
+    queries.push(`"awesome ${normalizedCity}" (events OR calendar)`);
+  }
+
+  if (radius > 0 && place) {
+    queries.push(`events within ${radius} miles of ${place}`);
+    queries.push(`local events near ${normalizedCity} ${normalizedState} ${radiusLabel}`.trim());
+    queries.push(`community calendar near ${normalizedCity} ${normalizedState} ${radiusLabel}`.trim());
+  }
+
+  if (radius >= 10 && normalizedCity) {
+    queries.push(`"${normalizedCity} area" events calendar`);
+    queries.push(`"${normalizedCity} county" events calendar`);
+  }
+
+  if (radius >= 15 && normalizedCity) {
+    queries.push(`"greater ${normalizedCity}" events calendar ${tourismKeywords}`.trim());
+    queries.push(`regional events near ${normalizedCity} ${normalizedState}`.trim());
+  }
+
+  if (radius >= 25 && normalizedCity) {
+    queries.push(`metro area events near ${normalizedCity} ${normalizedState}`.trim());
+    queries.push(`tourism events near ${normalizedCity} ${normalizedState}`.trim());
+  }
+
+  const unique = Array.from(new Set(queries.map(q => q.replace(/\s+/g, ' ').trim())));
+  return unique.filter(Boolean);
 }
 
 function scoreLocal(url, title, { city, zipcode }) {
@@ -116,16 +172,16 @@ function scoreLocal(url, title, { city, zipcode }) {
   let s = 0;
   if (d.endsWith('.gov') || d.endsWith('.us') || d.endsWith('.edu') || d.endsWith('.org')) s += 4;
   if (path.includes('/events') || path.includes('/calendar')) s += 3;
-  if (d.includes('library') || d.includes('parks') || d.includes('recreation') || d.includes('community') || d.includes('chamber') || d.includes('downtown') || d.includes('museum') || d.includes('arts') || d.includes('tourism') || d.includes('visitors') || d.includes('cvb')) s += 3;
+  if (LOCAL_KEYWORD_HINTS.some(k => d.includes(k))) s += 3;
   if (zipcode && (t.includes(zipcode) || path.includes(zipcode))) s += 2;
   if (city && (d.includes(city.toLowerCase().replace(/\s+/g,'-')) || d.includes(city.toLowerCase().replace(/\s+/g,'')) || t.includes(city.toLowerCase()))) s += 2;
   if (BLOCK_DOMAINS.some(b => d.endsWith(b))) s -= 5;
   return s;
 }
 
-async function searchWeb({ city, region_or_state, zipcode, country, start_date, end_date, maxResults = 12, preferLocal = true, debug = false }) {
-  const queries = preferLocal ? buildLocalQueries({ city, region_or_state, zipcode, country, start_date, end_date }) : [
-    `events ${city} ${region_or_state} ${zipcode || ''} ${country} between ${start_date} and ${end_date}`
+async function searchWeb({ city, region_or_state, zipcode, country, start_date, end_date, radiusMiles = 0, maxResults = 12, preferLocal = true, debug = false }) {
+  const queries = preferLocal ? buildLocalQueries({ city, region_or_state, zipcode, country, start_date, end_date, radiusMiles }) : [
+    `events ${city} ${region_or_state} ${zipcode || ''} ${country} between ${start_date} and ${end_date}${radiusMiles ? ` within ${radiusMiles} miles` : ''}`
   ];
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), 10000);
@@ -212,6 +268,7 @@ Resolved Variables:
 - start_date: ${userVars.start_date}
 - end_date: ${userVars.end_date}
 - timezone: ${userVars.timezone}
+- radius_miles: ${userVars.radius_miles}
 
 HARVESTED SOURCES (search + page skim):
 ${harvestedBlock}
@@ -254,8 +311,10 @@ async function modelToEvents(messages) {
 }
 
 // --- Public orchestrator ---
-export async function findEvents({ city, region_or_state, country, zipcode, start_date, end_date, timezone, debug = false, preferLocal = true }) {
-  const results = await searchWeb({ city, region_or_state, zipcode, country, start_date, end_date, preferLocal, debug });
+export async function findEvents({ city, region_or_state, country, zipcode, start_date, end_date, timezone, radius_miles = 0, debug = false, preferLocal = true }) {
+  const parsedRadius = Number(radius_miles);
+  const normalizedRadius = Number.isFinite(parsedRadius) ? Math.min(100, Math.max(0, parsedRadius)) : 0;
+  const results = await searchWeb({ city, region_or_state, zipcode, country, start_date, end_date, radiusMiles: normalizedRadius, preferLocal, debug });
 
   const enriched = await Promise.all(
     results.map(async r => ({ ...r, meta: await enrichFromPage(r.url) }))
@@ -329,13 +388,16 @@ Time window:
 
 Timezone for dates/times: {{timezone}}
 
+Radius preference:
+- radius_miles: {{radius_miles}}
+
 Use ONLY the harvested sources provided below (and your general knowledge) to produce events within the window and location. If you cannot confirm details, omit those fields. Return ONLY JSON.
 `.trim();
 
   const messages = buildMessages(
     SYSTEM_PROMPT,
     USER_TEMPLATE,
-    { city, region_or_state, country, zipcode, start_date, end_date, timezone },
+    { city, region_or_state, country, zipcode, start_date, end_date, timezone, radius_miles: normalizedRadius },
     enriched
   );
 
@@ -520,6 +582,22 @@ export const handler = async (event) => {
     const end_date = (qs.end_date || '').trim();
     const timezone = (qs.timezone || '').trim();
 
+    const radiusCandidates = [qs.radius_miles, qs.radiusMiles, qs.radius, qs.radius_km];
+    let radius_miles = undefined;
+    for (let i = 0; i < radiusCandidates.length; i++) {
+      const raw = radiusCandidates[i];
+      if (raw === undefined || raw === null) continue;
+      const value = Number(String(raw).trim());
+      if (Number.isFinite(value) && value >= 0) {
+        if (i === 3) {
+          radius_miles = value * 0.621371;
+        } else {
+          radius_miles = value;
+        }
+        break;
+      }
+    }
+
     if (!city || !region_or_state || !country || !start_date || !end_date || !timezone) {
       return response(400, { message: 'city, state (region_or_state), country, start_date, end_date, timezone are required' });
     }
@@ -533,7 +611,7 @@ export const handler = async (event) => {
 
     const debug = ['1','true','yes','on'].includes(String(qs.debug || '').toLowerCase());
     const preferLocal = !['0','false','no','off'].includes(String(qs.preferLocal || '1').toLowerCase());
-    const items = await findEvents({ city, region_or_state, country, zipcode, start_date, end_date, timezone, debug, preferLocal });
+    const items = await findEvents({ city, region_or_state, country, zipcode, start_date, end_date, timezone, radius_miles: radius_miles ?? 0, debug, preferLocal });
     return response(200, { count: items.length, items });
   } catch (err) {
     console.error('Search AI events error', err);
