@@ -185,7 +185,7 @@ class MotionBackendStack extends Stack {
         TOGETHER_API_KEY: process.env.TOGETHER_API_KEY ?? '',
         TAVILY_API_KEY: process.env.TAVILY_API_KEY ?? ''
       },
-      timeout: Duration.seconds(60),
+      timeout: Duration.seconds(900),
       // Cheerio/Ajv pull in modules that use require('buffer') internally.
       // Use CJS bundling for this function to avoid ESM dynamic-require errors in Lambda.
       bundling: { format: 'cjs', target: 'node20', minify: true }
