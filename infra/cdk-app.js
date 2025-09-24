@@ -182,8 +182,7 @@ class MotionBackendStack extends Stack {
       entry: 'functions/events/search-ai.js',
       handler: 'handler',
       environment: {
-        TOGETHER_API_KEY: process.env.TOGETHER_API_KEY ?? '',
-        TAVILY_API_KEY: process.env.TAVILY_API_KEY ?? ''
+        GEMINI_API_KEY: process.env.GEMINI_API_KEY ?? ''
       },
       timeout: Duration.seconds(900),
       memorySize: 512,

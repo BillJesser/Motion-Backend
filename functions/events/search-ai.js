@@ -1,11 +1,10 @@
-import { load as loadHtml } from 'cheerio';
 import Ajv from 'ajv';
 import { canonicalizeTags, selectTags, ALLOWED_TAGS } from '../lib/classify.js';
 
 // --- Config ---
-const MODEL = 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo';
-const TAVILY_URL = 'https://api.tavily.com/search';
-const USER_AGENT = 'Mozilla/5.0 (EventsAgent; +https://example.com)';
+const GEMINI_MODEL = 'models/gemini-2.5-pro-exp-0801';
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const GEMINI_TIMEOUT_MS = 45000;
 
 function response(statusCode, body) {
   return {
@@ -90,248 +89,167 @@ function dedupeEvents(events) {
   });
 }
 
-// --- Local-first Tavily search ---
-const BLOCK_DOMAINS = [
-  'eventbrite.com','ticketmaster.com','livenation.com','bandsintown.com','meetup.com','facebook.com','instagram.com',
-  'allevents.in','eventful.com','stubhub.com','tickpick.com','vividseats.com','songkick.com'
-];
-
-const LOCAL_KEYWORD_HINTS = ['library','parks','recreation','community','chamber','downtown','museum','arts','tourism','visitors','cvb','visit','discover','explore','experience','awesome','mainstreet','heritage','culture'];
-
-function getDomain(url) {
-  try { return new URL(url).hostname.replace(/^www\./,''); } catch { return ''; }
-}
-
-function buildLocalQueries({ city, region_or_state, zipcode, country, start_date, end_date, radiusMiles }) {
-  const normalizedCity = (city || '').trim();
-  const normalizedState = (region_or_state || '').trim();
-  const normalizedZip = (zipcode || '').trim();
-  const placeParts = [normalizedCity, normalizedState, normalizedZip, country].filter(Boolean);
-  const place = placeParts.join(' ').trim();
-  const radius = Number(radiusMiles) || 0;
-  const radiusLabel = radius > 0 ? `${radius} mile${radius === 1 ? '' : 's'}` : '';
-  const timeframe = start_date && end_date ? `between ${start_date} and ${end_date}` : '';
-  const tourismKeywords = '("visit" OR "discover" OR "explore" OR "experience" OR "awesome" OR "tourism" OR "visitors" OR "cvb" OR "downtown" OR "chamber")';
-
-  const baseQueries = [
-    `(${normalizedCity} ${normalizedState}) (events OR calendar) site:(.gov OR .us OR .org OR .edu)`,
-    `(${normalizedCity} ${normalizedState}) (events OR calendar) site:(library.* OR parks.* OR recreation.* OR community.* OR chamber.* OR downtown.* OR museum.* OR arts.* OR tourism.* OR visitors.* OR cvb.* OR visit.* OR discover.* OR explore.* OR experience.* OR awesome.*)`,
-    `(${normalizedCity} ${normalizedState}) (events OR calendar) site:(.news OR .local OR patch.com OR gazette.* OR journal.* OR times.*)`
-  ];
-  const queries = [...baseQueries];
-
-  if (place) {
-    const genericLocal = `events calendar ${place} ${timeframe}`.replace(/\s+/g, ' ').trim();
-    queries.push(`${genericLocal} -eventbrite -ticketmaster -meetup -facebook -instagram`);
-  }
-
-  if (normalizedCity && normalizedState) {
-    queries.push(`("${normalizedCity}" "${normalizedState}") (events OR calendar) ${tourismKeywords}`);
-  }
-
-  if (normalizedZip) {
-    queries.push(`(${normalizedZip} OR "${normalizedCity} ${normalizedZip}") (events OR calendar) ${tourismKeywords}`);
-  }
-
-  if (normalizedCity) {
-    queries.push(`"visit ${normalizedCity}" (events OR calendar)`);
-    queries.push(`"discover ${normalizedCity}" (events OR calendar)`);
-    queries.push(`"explore ${normalizedCity}" (events OR calendar)`);
-    queries.push(`"awesome ${normalizedCity}" (events OR calendar)`);
-  }
-
-  if (radius > 0 && place) {
-    queries.push(`events within ${radius} miles of ${place}`);
-    queries.push(`local events near ${normalizedCity} ${normalizedState} ${radiusLabel}`.trim());
-    queries.push(`community calendar near ${normalizedCity} ${normalizedState} ${radiusLabel}`.trim());
-  }
-
-  if (radius >= 10 && normalizedCity) {
-    queries.push(`"${normalizedCity} area" events calendar`);
-    queries.push(`"${normalizedCity} county" events calendar`);
-  }
-
-  if (radius >= 15 && normalizedCity) {
-    queries.push(`"greater ${normalizedCity}" events calendar ${tourismKeywords}`.trim());
-    queries.push(`regional events near ${normalizedCity} ${normalizedState}`.trim());
-  }
-
-  if (radius >= 25 && normalizedCity) {
-    queries.push(`metro area events near ${normalizedCity} ${normalizedState}`.trim());
-    queries.push(`tourism events near ${normalizedCity} ${normalizedState}`.trim());
-  }
-
-  const unique = Array.from(new Set(queries.map(q => q.replace(/\s+/g, ' ').trim())));
-  return unique.filter(Boolean);
-}
-
-function scoreLocal(url, title, { city, zipcode }) {
-  const d = getDomain(url).toLowerCase();
-  const path = (() => { try { return new URL(url).pathname.toLowerCase(); } catch { return ''; } })();
-  const t = String(title || '').toLowerCase();
-  let s = 0;
-  if (d.endsWith('.gov') || d.endsWith('.us') || d.endsWith('.edu') || d.endsWith('.org')) s += 4;
-  if (path.includes('/events') || path.includes('/calendar')) s += 3;
-  if (LOCAL_KEYWORD_HINTS.some(k => d.includes(k))) s += 3;
-  if (zipcode && (t.includes(zipcode) || path.includes(zipcode))) s += 2;
-  if (city && (d.includes(city.toLowerCase().replace(/\s+/g,'-')) || d.includes(city.toLowerCase().replace(/\s+/g,'')) || t.includes(city.toLowerCase()))) s += 2;
-  if (BLOCK_DOMAINS.some(b => d.endsWith(b))) s -= 5;
-  return s;
-}
-
-async function searchWeb({ city, region_or_state, zipcode, country, start_date, end_date, radiusMiles = 0, maxResults = 12, preferLocal = true, debug = false }) {
-  const queries = preferLocal ? buildLocalQueries({ city, region_or_state, zipcode, country, start_date, end_date, radiusMiles }) : [
-    `events ${city} ${region_or_state} ${zipcode || ''} ${country} between ${start_date} and ${end_date}${radiusMiles ? ` within ${radiusMiles} miles` : ''}`
-  ];
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 10000);
-  try {
-    const reqs = queries.map(q => fetch(TAVILY_URL, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: process.env.TAVILY_API_KEY || '', query: q, include_answer: false, max_results: Math.max(1, Math.min(12, Number(maxResults) || 12)) }),
-      signal: controller.signal
-    }).then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })));
-    const outs = await Promise.all(reqs);
-    const combined = [];
-    for (const o of outs) {
-      for (const r of (o?.results || [])) combined.push({ title: r.title, snippet: r.content, url: r.url });
-    }
-    const byUrl = new Map();
-    for (const r of combined) if (r.url) byUrl.set(r.url, r);
-    let arr = Array.from(byUrl.values());
-    const scored = arr.map(r => ({ ...r, _domain: getDomain(r.url), _score: scoreLocal(r.url, r.title, { city, zipcode }) }));
-    const localCandidates = scored.filter(x => x._score > 0 && !BLOCK_DOMAINS.some(b => x._domain.endsWith(b)));
-    let picked;
-    if (preferLocal && localCandidates.length >= Math.min(4, maxResults)) {
-      picked = localCandidates.sort((a,b) => b._score - a._score).slice(0, maxResults);
-    } else {
-      picked = scored.sort((a,b) => b._score - a._score).slice(0, maxResults);
-    }
-    if (debug) {
-      console.log('Search candidates (local-first):', picked.map(p => ({ url: p.url, domain: p._domain, score: p._score })));
-    }
-    return picked.map(({ _domain, _score, ...rest }) => rest);
-  } finally {
-    clearTimeout(id);
-  }
-}
-
-// --- Fetch & skim each page for better context (meta tags etc.) ---
-async function enrichFromPage(url) {
-  try {
-    const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
-    if (!res.ok) return {};
-    const html = await res.text();
-    const $ = loadHtml(html);
-    const ogTitle = $('meta[property="og:title"]').attr('content');
-    const ogDesc = $('meta[property="og:description"]').attr('content');
-    const ogImage = $('meta[property="og:image"]').attr('content');
-    const eventName = $('[itemprop="name"]').first().text().trim() || ogTitle;
-    const desc = $('[itemprop="description"]').first().text().trim() || ogDesc;
-    return {
-      page_title: $('title').text().trim() || ogTitle,
-      event_name: eventName,
-      description: desc,
-      image: ogImage
-    };
-  } catch {
-    return {};
-  }
-}
-
-// --- Build the model messages ---
-function buildMessages(systemPrompt, userTemplate, userVars, harvested) {
-  const harvestedBlock = harvested
-    .map((h, i) => {
-      const lines = [
-        `#${i + 1}`,
-        `URL: ${h.url}`,
-        `TITLE: ${h.title || ''}`,
-        `SNIPPET: ${h.snippet || ''}`,
-        `PAGE_TITLE: ${h.meta?.page_title || ''}`,
-        `PAGE_EVENT_NAME: ${h.meta?.event_name || ''}`,
-        `PAGE_DESC: ${h.meta?.description || ''}`,
-        `PAGE_IMAGE: ${h.meta?.image || ''}`
-      ];
-      return lines.join('\n');
-    })
-    .join('\n\n');
-
-  const userFilled = `
-${userTemplate}
-
-Resolved Variables:
-- city: ${userVars.city}
-- region_or_state: ${userVars.region_or_state}
-- country: ${userVars.country}
-- zipcode: ${userVars.zipcode || ''}
-- start_date: ${userVars.start_date}
-- end_date: ${userVars.end_date}
-- timezone: ${userVars.timezone}
-- radius_miles: ${userVars.radius_miles}
-
-HARVESTED SOURCES (search + page skim):
-${harvestedBlock}
-`.trim();
+// --- Gemini helper utilities ---
+function buildGeminiUserPrompt({ city, region_or_state, country, zipcode, start_date, end_date, timezone, radius_miles, preferLocal }) {
+  const radiusNote = Number.isFinite(radius_miles) && radius_miles > 0
+    ? `${radius_miles} mile radius`
+    : 'the immediate local area';
+  const localityPreference = preferLocal
+    ? 'Strongly prioritize official local/community sources (city or county sites, CVBs, tourism bureaus, downtown alliances, libraries, parks & recreation, local news). Use Google Search grounding to surface these first.'
+    : 'Use any trustworthy sources you can confirm, leaning toward local/community references when available.';
 
   return [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userFilled }
-  ];
+    'Find real-world public events for the requested place and window.',
+    '',
+    'Location:',
+    `- city: ${city}`,
+    `- region_or_state: ${region_or_state}`,
+    `- country: ${country}`,
+    `- zipcode: ${zipcode || ''}`,
+    '',
+    'Time window:',
+    `- start_date: ${start_date}`,
+    `- end_date: ${end_date}`,
+    '',
+    `Target radius: ${radiusNote}`,
+    localityPreference,
+    '',
+    'Instructions:',
+    '- Only include events occurring within the dates (inclusive) AND within the radius.',
+    '- Every event must cite a reliable source_url that you accessed via Google Search grounding.',
+    '- Prefer community calendars, government sites, libraries, parks & recreation, chambers, CVBs, and local news.',
+    '- Deprioritize large ticketing aggregators unless no local sources exist.',
+    '- Return STRICT JSON (array) matching the provided schema.',
+    '- Omit any field you cannot confirm.',
+    '- Format dates as YYYY-MM-DD and times as HH:MM in 24h time.',
+    '',
+    `Timezone for normalization: ${timezone}`
+  ].join('
+');
 }
 
-// --- Call Together.ai and force JSON ---
-async function modelToEvents(messages) {
-  const res = await fetch('https://api.together.xyz/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.TOGETHER_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      temperature: 0.2,
-      max_tokens: 1200,
-      response_format: { type: 'json_object' },
-      messages
-    })
-  });
-  if (!res.ok) throw new Error(`Together API failed: ${res.status}`);
-  const completion = await res.json();
-  const text = completion?.choices?.[0]?.message?.content || '[]';
-  let parsed;
+function decodeGeminiInlineData(part) {
+  if (!part?.inlineData?.data) return '';
   try {
-    parsed = JSON.parse(text);
+    return Buffer.from(part.inlineData.data, 'base64').toString('utf8');
   } catch {
-    const m = text.match(/\[.*\]/s);
-    parsed = m ? JSON.parse(m[0]) : [];
+    return '';
   }
-  const events = Array.isArray(parsed) ? parsed : Array.isArray(parsed.events) ? parsed.events : [];
-  return events;
+}
+
+function extractTextFromCandidates(data) {
+  if (!data?.candidates) return '';
+  for (const candidate of data.candidates) {
+    const parts = candidate?.content?.parts || [];
+    const textParts = parts
+      .map(p => typeof p.text === 'string' ? p.text : decodeGeminiInlineData(p))
+      .filter(Boolean);
+    if (textParts.length > 0) {
+      return textParts.join('
+').trim();
+    }
+  }
+  return '';
+}
+
+function tryParseEventsFromText(text) {
+  if (!text) return [];
+  const trimmed = text.trim();
+  const attempts = [trimmed];
+  const arraySlice = (() => {
+    const start = trimmed.indexOf('[');
+    const end = trimmed.lastIndexOf(']');
+    if (start !== -1 && end !== -1 && end > start) {
+      return trimmed.slice(start, end + 1);
+    }
+    return null;
+  })();
+  const objectSlice = (() => {
+    const start = trimmed.indexOf('{');
+    const end = trimmed.lastIndexOf('}');
+    if (start !== -1 && end !== -1 && end > start) {
+      return trimmed.slice(start, end + 1);
+    }
+    return null;
+  })();
+  if (arraySlice) attempts.push(arraySlice);
+  if (objectSlice) attempts.push(objectSlice);
+
+  for (const candidate of attempts) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && Array.isArray(parsed.events)) return parsed.events;
+    } catch {
+      // continue
+    }
+  }
+  return [];
+}
+
+async function callGeminiForEvents({ systemPrompt, userPrompt, debug }) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('Gemini API key not configured');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  try {
+    const url = `${GEMINI_API_BASE}/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${apiKey}`;
+    const body = {
+      systemInstruction: { role: 'system', parts: [{ text: systemPrompt }] },
+      contents: [
+        { role: 'user', parts: [{ text: userPrompt }] }
+      ],
+      tools: [{ googleSearchRetrieval: {} }],
+      generationConfig: {
+        temperature: 0.2,
+        topK: 32,
+        topP: 0.95,
+        maxOutputTokens: 1400,
+        responseMimeType: 'application/json'
+      }
+    };
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Gemini API error ${res.status}: ${errText}`);
+    }
+
+    const payload = await res.json();
+    const text = extractTextFromCandidates(payload);
+    if (debug) {
+      console.log('Gemini response snippet:', text?.slice(0, 500) || '');
+    }
+    return tryParseEventsFromText(text);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // --- Public orchestrator ---
 export async function findEvents({ city, region_or_state, country, zipcode, start_date, end_date, timezone, radius_miles = 0, debug = false, preferLocal = true }) {
   const parsedRadius = Number(radius_miles);
   const normalizedRadius = Number.isFinite(parsedRadius) ? Math.min(100, Math.max(0, parsedRadius)) : 0;
-  const results = await searchWeb({ city, region_or_state, zipcode, country, start_date, end_date, radiusMiles: normalizedRadius, preferLocal, debug });
-
-  const enriched = await Promise.all(
-    results.map(async r => ({ ...r, meta: await enrichFromPage(r.url) }))
-  );
 
   const SYSTEM_PROMPT = `
-You are an assistant that finds real-world LOCAL public events (concerts, festivals, shows, markets, etc.) for a given place and time window with a strong preference for local community sources.
-Return STRICT JSON ONLY (no prose) as an array of events. Follow the output schema exactly. If nothing is found, return [].
+You are an assistant that researches real-world LOCAL public events (concerts, festivals, shows, markets, etc.) for a specified place and time window.
+Use the Google Search grounding tool before answering so that every event is backed by a trustworthy local source.
+Return STRICT JSON ONLY (no prose) as an array of events. If nothing is found, return [].
 
 Rules:
 - Use the requested timezone for dates/times.
 - Normalize: dates = YYYY-MM-DD, times = HH:MM (24h).
 - Strongly prefer LOCAL official/community sources: city/county (.gov/.us), libraries, parks & recreation, community/downtown/chamber, museums/arts, tourism/visitors/CVB, and local news sites.
-- Deprioritize large aggregators (Eventbrite, Ticketmaster, Meetup, Bandsintown, Facebook, Instagram). Use them only if no strong local source exists.
+- Deprioritize large aggregators (Eventbrite, Ticketmaster, Meetup, Bandsintown, Facebook, Instagram) unless no local source exists.
+- Each event must include a verifiable source_url from the consulted site.
 - De-duplicate by (title + start_date + venue).
 - If any field is unknown, omit the field rather than guessing.
-- Include a reliable source_url for each event whenever possible.
 
 OUTPUT SCHEMA (use exactly these keys when present):
 [
@@ -372,38 +290,21 @@ OUTPUT SCHEMA (use exactly these keys when present):
 ]
 `.trim();
 
-  const USER_TEMPLATE = `
-USER
-Find events.
+  const userPrompt = buildGeminiUserPrompt({
+    city,
+    region_or_state,
+    country,
+    zipcode,
+    start_date,
+    end_date,
+    timezone,
+    radius_miles: normalizedRadius,
+    preferLocal
+  });
 
-Location:
-- city: {{city}}
-- region_or_state: {{region_or_state}}
-- country: {{country}}
-- zipcode: {{zipcode}}
-
-Time window:
-- start_date: {{start_date}}
-- end_date:   {{end_date}}
-
-Timezone for dates/times: {{timezone}}
-
-Radius preference:
-- radius_miles: {{radius_miles}}
-
-Use ONLY the harvested sources provided below (and your general knowledge) to produce events within the window and location. If you cannot confirm details, omit those fields. Return ONLY JSON.
-`.trim();
-
-  const messages = buildMessages(
-    SYSTEM_PROMPT,
-    USER_TEMPLATE,
-    { city, region_or_state, country, zipcode, start_date, end_date, timezone, radius_miles: normalizedRadius },
-    enriched
-  );
-
-  const rawEvents = await modelToEvents(messages);
+  const rawEvents = await callGeminiForEvents({ systemPrompt: SYSTEM_PROMPT, userPrompt, debug });
   if (debug) {
-    console.log('AI raw events (count):', Array.isArray(rawEvents) ? rawEvents.length : 'not-array');
+    console.log('Gemini raw events (count):', Array.isArray(rawEvents) ? rawEvents.length : 'not-array');
     if (Array.isArray(rawEvents) && rawEvents.length > 0) {
       const sample = rawEvents.slice(0, 3).map((e, i) => ({
         i,
@@ -414,16 +315,13 @@ Use ONLY the harvested sources provided below (and your general knowledge) to pr
         end_time: e.end_time,
         source_url: e.source_url
       }));
-      console.log('AI raw sample (first 3):', JSON.stringify(sample));
+      console.log('Gemini raw sample (first 3):', JSON.stringify(sample));
     }
   }
 
-  // Normalize time strings to HH:MM 24h or drop if unparsable
   function toHHMM(s) {
     if (!s || typeof s !== 'string') return null;
     const t = s.trim().toLowerCase().replace(/\s+/g, '');
-    // Formats: HH:MM, HH:MM:SS, H:MM, HHMM, h(am|pm), h:mm(am|pm)
-    // 1) h:mm(am|pm) or h(am|pm)
     let m = t.match(/^(\d{1,2})(?::?(\d{2}))?(am|pm)$/);
     if (m) {
       let h = parseInt(m[1], 10);
@@ -434,54 +332,39 @@ Use ONLY the harvested sources provided below (and your general knowledge) to pr
       if (h >= 0 && h <= 23 && min >= 0 && min <= 59) return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
       return null;
     }
-    // 2) HH:MM:SS
     m = t.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
     if (m) {
       const h = parseInt(m[1], 10), min = parseInt(m[2], 10);
       if (h>=0&&h<=23&&min>=0&&min<=59) return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
       return null;
     }
-    // 3) HH:MM (already 24h)
     m = t.match(/^(\d{1,2}):(\d{2})$/);
     if (m) {
       const h = parseInt(m[1], 10), min = parseInt(m[2], 10);
       if (h>=0&&h<=23&&min>=0&&min<=59) return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
       return null;
     }
-    // 4) HHMM
     m = t.match(/^(\d{3,4})$/);
     if (m) {
-      const num = m[1];
-      const h = parseInt(num.length===3? num.slice(0,1) : num.slice(0,2), 10);
-      const min = parseInt(num.slice(-2), 10);
+      const raw = m[1].padStart(4,'0');
+      const h = parseInt(raw.slice(0, -2), 10);
+      const min = parseInt(raw.slice(-2), 10);
       if (h>=0&&h<=23&&min>=0&&min<=59) return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
       return null;
     }
-    // Otherwise, strip any timezone text like "7pmest" -> handled above
     return null;
   }
 
-  function isValidDateYYYYMMDD(s) {
-    return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
-  }
-
-  // Extract YYYY-MM-DD and optional time from flexible date/datetime strings
-  function extractDateAndTime(s) {
-    if (!s || typeof s !== 'string') return null;
-    const t = s.trim();
-    // 1) Exact date
-    let m = t.match(/^(\d{4}-\d{2}-\d{2})$/);
-    if (m) return { date: m[1] };
-    // 2) Date followed by time (space or 'T')
-    m = t.match(/^(\d{4}-\d{2}-\d{2})[ T]+(.+)$/);
+  function extractDateAndTime(value) {
+    if (!value || typeof value !== 'string') return null;
+    const t = value.trim();
+    let m = t.match(/^(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?$/);
     if (m) {
       const hhmm = toHHMM(m[2]);
       return { date: m[1], time: hhmm || undefined };
     }
-    // 3) Try to find a date within the string
     m = t.match(/(\d{4}-\d{2}-\d{2})/);
     if (m) {
-      // Also try to find a time token nearby
       const timeToken = t.match(/(\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))/i);
       const hhmm = timeToken ? toHHMM(timeToken[0]) : undefined;
       return { date: m[1], time: hhmm };
@@ -489,14 +372,17 @@ Use ONLY the harvested sources provided below (and your general knowledge) to pr
     return null;
   }
 
-  const normalized = rawEvents.map(e => {
-    // Normalize start date/time
+  function isValidDateYYYYMMDD(val) {
+    return typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val);
+  }
+
+  const rawList = Array.isArray(rawEvents) ? rawEvents : [];
+  const normalized = rawList.map(e => {
     const startDT = extractDateAndTime(e.start_date);
     if (startDT?.date) e.start_date = startDT.date;
     const nt = toHHMM(e.start_time) || startDT?.time || null;
-    // Normalize end date/time (optional)
     const endDT = extractDateAndTime(e.end_date);
-    if (endDT?.date) e.end_date = endDT.date; else if (e.end_date !== undefined) e.end_date = undefined; // drop empty/invalid end_date
+    if (endDT?.date) e.end_date = endDT.date; else if (e.end_date !== undefined) e.end_date = undefined;
     const et = toHHMM(e.end_time) || endDT?.time || null;
     const base = {
       ...e,
@@ -510,7 +396,7 @@ Use ONLY the harvested sources provided below (and your general knowledge) to pr
     };
     if (nt) base.start_time = nt; else delete base.start_time;
     if (et) base.end_time = et; else delete base.end_time;
-    if (!isValidDateYYYYMMDD(base.end_date)) delete base.end_date; // remove empty string or invalid end_date
+    if (!isValidDateYYYYMMDD(base.end_date)) delete base.end_date;
     if (debug) {
       console.log('Normalized event times:', {
         title: base.title,
@@ -525,13 +411,11 @@ Use ONLY the harvested sources provided below (and your general knowledge) to pr
 
   const deduped = dedupeEvents(normalized);
 
-  // Validate and salvage obvious rows if needed
   const valid = validateEvents(deduped);
   let finalEvents = deduped;
   if (!valid) {
     console.error('Validation errors:', validateEvents.errors);
     if (debug) {
-      // Print focused context for the indices referenced by the errors
       const idxs = Array.from(new Set((validateEvents.errors || [])
         .map(e => {
           const m = String(e.instancePath || '').match(/^\/(\d+)/);
@@ -560,7 +444,6 @@ Use ONLY the harvested sources provided below (and your general knowledge) to pr
     );
   }
 
-  // Normalize tags: map to allowed list; if none, auto-classify
   finalEvents = finalEvents.map(ev => {
     const provided = canonicalizeTags(ev.tags);
     const withinAllowed = provided.filter(t => ALLOWED_TAGS.includes(t));
@@ -602,11 +485,8 @@ export const handler = async (event) => {
       return response(400, { message: 'city, state (region_or_state), country, start_date, end_date, timezone are required' });
     }
 
-    if (!process.env.TOGETHER_API_KEY) {
-      return response(500, { message: 'Together API key not configured' });
-    }
-    if (!process.env.TAVILY_API_KEY) {
-      return response(500, { message: 'Tavily API key not configured' });
+    if (!process.env.GEMINI_API_KEY) {
+      return response(500, { message: 'Gemini API key not configured' });
     }
 
     const debug = ['1','true','yes','on'].includes(String(qs.debug || '').toLowerCase());

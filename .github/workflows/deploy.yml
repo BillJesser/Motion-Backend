@@ -40,8 +40,7 @@ jobs:
           echo "STACK_NAME=${{ env.STACK_NAME }}"
           echo "Has AWS_DEPLOY_ROLE_ARN secret: ${{ secrets.AWS_DEPLOY_ROLE_ARN != '' }}"
           echo "Has JWT_SECRET secret: ${{ secrets.JWT_SECRET != '' }}"
-          echo "Has TOGETHER_API_KEY secret: ${{ secrets.TOGETHER_API_KEY != '' }}"
-          echo "Has TAVILY_API_KEY secret: ${{ secrets.TAVILY_API_KEY != '' }}"
+          echo "Has GEMINI_API_KEY secret: ${{ secrets.GEMINI_API_KEY != '' }}"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -68,5 +67,4 @@ jobs:
           JWT_SECRET: ${{ env.JWT_SECRET }}
           STACK_NAME: ${{ env.STACK_NAME }}
           AWS_REGION: ${{ env.AWS_REGION }}
-          TOGETHER_API_KEY: ${{ env.TOGETHER_API_KEY }}
-          TAVILY_API_KEY: ${{ env.TAVILY_API_KEY }}
+          GEMINI_API_KEY: ${{ env.GEMINI_API_KEY }}
