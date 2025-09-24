@@ -124,8 +124,7 @@ function buildGeminiUserPrompt({ city, region_or_state, country, zipcode, start_
     '- Format dates as YYYY-MM-DD and times as HH:MM in 24h time.',
     '',
     `Timezone for normalization: ${timezone}`
-  ].join('
-');
+  ].join('\n');
 }
 
 function decodeGeminiInlineData(part) {
@@ -145,8 +144,7 @@ function extractTextFromCandidates(data) {
       .map(p => typeof p.text === 'string' ? p.text : decodeGeminiInlineData(p))
       .filter(Boolean);
     if (textParts.length > 0) {
-      return textParts.join('
-').trim();
+      return textParts.join('\n').trim();
     }
   }
   return '';
