@@ -13,8 +13,7 @@ env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
   STACK_NAME: ${{ vars.STACK_NAME || 'MotionBackendStack' }}
   JWT_SECRET: ${{ secrets.JWT_SECRET }}
-  TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
-  TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
 jobs:
   deploy:
