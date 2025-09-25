@@ -1,12 +1,10 @@
-import { GoogleGenAI } from '@google/genai';
 import Ajv from 'ajv';
 import { canonicalizeTags, selectTags, ALLOWED_TAGS } from '../lib/classify.js';
 
 // --- Config ---
-let geminiClient = null;
-let geminiClientKey = null;
-
 const GEMINI_MODEL = 'gemini-2.5-pro';
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const GEMINI_TIMEOUT_MS = 45000;
 
 function response(statusCode, body) {
   return {
@@ -191,38 +189,54 @@ async function callGeminiForEvents({ systemPrompt, userPrompt, debug }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('Gemini API key not configured');
 
-  if (!geminiClient || geminiClientKey !== apiKey) {
-    geminiClient = new GoogleGenAI({ apiKey });
-    geminiClientKey = apiKey;
-  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  try {
+    const url = `${GEMINI_API_BASE}/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${apiKey}`;
+    const body = {
+      systemInstruction: { role: 'system', parts: [{ text: systemPrompt }] },
+      contents: [
+        { role: 'user', parts: [{ text: userPrompt }] }
+      ],
+      tools: [
+        { google_search: {} }
+      ],
+      generationConfig: {
+        temperature: 0.2,
+        topK: 32,
+        topP: 0.95,
+        maxOutputTokens: 1400,
+        responseMimeType: 'application/json'
+      }
+    };
 
-  const request = {
-    model: GEMINI_MODEL,
-    systemInstruction: { role: 'system', parts: [{ text: systemPrompt }] },
-    contents: [
-      { role: 'user', parts: [{ text: userPrompt }] }
-    ],
-    config: {
-      tools: [{ googleSearchRetrieval: {} }],
-      responseMimeType: 'application/json'
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Gemini API error ${res.status}: ${errText}`);
     }
-  };
 
-  const response = await geminiClient.models.generateContent(request);
-  let text = '';
-  if (typeof response.text === 'function') {
-    try { text = response.text(); } catch { text = ''; }
-  } else if (typeof response.text === 'string') {
-    text = response.text;
+    const payload = await res.json();
+    let text = '';
+    const primaryText = payload?.candidates?.[0]?.content?.parts?.find(p => typeof p.text === 'string')?.text;
+    if (primaryText) {
+      text = primaryText;
+    } else {
+      text = extractTextFromCandidates(payload);
+    }
+    if (debug) {
+      console.log('Gemini response snippet:', text?.slice(0, 500) || '');
+    }
+    return tryParseEventsFromText(text);
+  } finally {
+    clearTimeout(timer);
   }
-  if (!text) {
-    const candidateSource = response.response ?? response;
-    text = extractTextFromCandidates(candidateSource);
-  }
-  if (debug) {
-    console.log('Gemini response snippet:', text?.slice(0, 500) || '');
-  }
-  return tryParseEventsFromText(text);
 }
 
 // --- Public orchestrator ---
