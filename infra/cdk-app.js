@@ -185,7 +185,7 @@ class MotionBackendStack extends Stack {
         GEMINI_API_KEY: process.env.GEMINI_API_KEY ?? ''
       },
       timeout: Duration.seconds(900),
-      memorySize: 512,
+      memorySize: 256,
       // Cheerio/Ajv pull in modules that use require('buffer') internally.
       // Use CJS bundling for this function to avoid ESM dynamic-require errors in Lambda.
       bundling: { format: 'cjs', target: 'node20', minify: true }
