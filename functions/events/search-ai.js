@@ -111,7 +111,7 @@ function buildGeminiUserPrompt({ city, region_or_state, country, start_date, end
 
   return [
     'Find real-world public events for the requested place and window.',
-    'When possible, gather around 6-7 solid options.',
+    'When possible, gather around 10 solid options.',
     '',
     'Location:',
     `- city: ${city}`,
@@ -130,7 +130,7 @@ function buildGeminiUserPrompt({ city, region_or_state, country, start_date, end
     '- Only include events occurring within the requested dates (inclusive) and inside the radius.',
     '- Every event must cite the same page you inspected as source_url.',
     '- Favor community calendars, civic/tourism sites, local news, and avoid large ticketing aggregators.',
-    '- Aim for roughly 6-7 qualifying events when the sources exist.',
+    '- Aim for roughly 10 qualifying events when the sources exist.',
     '- Format dates as YYYY-MM-DD and times as HH:MM (24h).',
     '',
     `Timezone for normalization: ${timezone}`
@@ -264,7 +264,7 @@ Rules:
 - Strongly prefer LOCAL community sources: city/county (.gov/.us/.net), libraries, parks & recreation, community/downtown/chamber, museums/arts, tourism/visitors/CVB, and local news sites.
 - Deprioritize large aggregators (Eventbrite, Ticketmaster, Meetup, Bandsintown, Facebook, Instagram) unless no local source exists.
 - Each event must include a verifiable source_url from the consulted site.
-- Aim to return 6-7 distinct events when available; include credible events even if some details are missing.
+- Aim to return 10 distinct events when available; include credible events even if some details are missing.
 - De-duplicate by (title + start_date + venue).
 - If any field is unknown, omit the field rather than guessing.
 
