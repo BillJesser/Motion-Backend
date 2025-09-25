@@ -2,7 +2,7 @@ import Ajv from 'ajv';
 import { canonicalizeTags, selectTags, ALLOWED_TAGS } from '../lib/classify.js';
 
 // --- Config ---
-const GEMINI_MODEL = 'gemini-2.5-pro';
+const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const GEMINI_TIMEOUT_MS = 45000;
 
