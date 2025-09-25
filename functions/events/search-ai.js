@@ -215,7 +215,7 @@ async function callGeminiForEvents({ systemPrompt, userPrompt, debug }) {
         temperature: 0.2,
         topK: 32,
         topP: 0.95,
-        maxOutputTokens: 1400
+        maxOutputTokens: 30000
       }
     };
 
