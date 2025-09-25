@@ -4,7 +4,7 @@ import { canonicalizeTags, selectTags, ALLOWED_TAGS } from '../lib/classify.js';
 // --- Config ---
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-const GEMINI_TIMEOUT_MS = 45000;
+const GEMINI_TIMEOUT_MS = 600000;
 
 const BLOCKED_AGGREGATOR_DOMAINS = ['eventbrite.com','ticketmaster.com','livenation.com','bandsintown.com','meetup.com','facebook.com','instagram.com','allevents.in','eventful.com','stubhub.com','tickpick.com','vividseats.com','songkick.com'];
 
