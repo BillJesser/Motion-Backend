@@ -6,6 +6,18 @@ const GEMINI_MODEL = 'gemini-2.5-pro';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const GEMINI_TIMEOUT_MS = 45000;
 
+const BLOCKED_AGGREGATOR_DOMAINS = ['eventbrite.com','ticketmaster.com','livenation.com','bandsintown.com','meetup.com','facebook.com','instagram.com','allevents.in','eventful.com','stubhub.com','tickpick.com','vividseats.com','songkick.com'];
+
+function isBlockedDomain(url) {
+  if (!url) return false;
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+    return BLOCKED_AGGREGATOR_DOMAINS.some(domain => host === domain || host.endsWith(`.${domain}`));
+  } catch {
+    return false;
+  }
+}
+
 function response(statusCode, body) {
   return {
     statusCode,
@@ -20,7 +32,7 @@ const eventSchema = {
   type: 'array',
   items: {
     type: 'object',
-    required: ['title', 'start_date', 'timezone', 'location', 'source_url'],
+    required: ['title', 'start_date', 'source_url'],
     additionalProperties: false,
     properties: {
       title: { type: 'string' },
@@ -32,7 +44,6 @@ const eventSchema = {
       timezone: { type: 'string' },
       location: {
         type: 'object',
-        required: ['city', 'state', 'country'],
         additionalProperties: false,
         properties: {
           venue: { type: 'string' },
@@ -90,7 +101,7 @@ function dedupeEvents(events) {
 }
 
 // --- Gemini helper utilities ---
-function buildGeminiUserPrompt({ city, region_or_state, country, zipcode, start_date, end_date, timezone, radius_miles, preferLocal }) {
+function buildGeminiUserPrompt({ city, region_or_state, country, start_date, end_date, timezone, radius_miles, preferLocal }) {
   const radiusNote = Number.isFinite(radius_miles) && radius_miles > 0
     ? `${radius_miles} mile radius`
     : 'the immediate local area';
@@ -100,12 +111,12 @@ function buildGeminiUserPrompt({ city, region_or_state, country, zipcode, start_
 
   return [
     'Find real-world public events for the requested place and window.',
+    'When possible, gather around 6-7 solid options.',
     '',
     'Location:',
     `- city: ${city}`,
     `- region_or_state: ${region_or_state}`,
     `- country: ${country}`,
-    `- zipcode: ${zipcode || ''}`,
     '',
     'Time window:',
     `- start_date: ${start_date}`,
@@ -113,15 +124,14 @@ function buildGeminiUserPrompt({ city, region_or_state, country, zipcode, start_
     '',
     `Target radius: ${radiusNote}`,
     localityPreference,
+    'Include events even if some logistical details are missing, as long as the source link is trustworthy.',
     '',
     'Instructions:',
-    '- Only include events occurring within the dates (inclusive) AND within the radius.',
-    '- Every event must cite a reliable source_url that you accessed via Google Search grounding.',
-    '- Prefer community calendars, government sites, libraries, parks & recreation, chambers, CVBs, and local news.',
-    '- Deprioritize large ticketing aggregators unless no local sources exist.',
-    '- Return STRICT JSON (array) matching the provided schema.',
-    '- Omit any field you cannot confirm.',
-    '- Format dates as YYYY-MM-DD and times as HH:MM in 24h time.',
+    '- Only include events occurring within the requested dates (inclusive) and inside the radius.',
+    '- Every event must cite the same page you inspected as source_url.',
+    '- Favor community calendars, civic/tourism sites, local news, and avoid large ticketing aggregators.',
+    '- Aim for roughly 6-7 qualifying events when the sources exist.',
+    '- Format dates as YYYY-MM-DD and times as HH:MM (24h).',
     '',
     `Timezone for normalization: ${timezone}`
   ].join('\n');
@@ -239,7 +249,7 @@ async function callGeminiForEvents({ systemPrompt, userPrompt, debug }) {
 }
 
 // --- Public orchestrator ---
-export async function findEvents({ city, region_or_state, country, zipcode, start_date, end_date, timezone, radius_miles = 0, debug = false, preferLocal = true }) {
+export async function findEvents({ city, region_or_state, country, start_date, end_date, timezone, radius_miles = 0, debug = false, preferLocal = true }) {
   const parsedRadius = Number(radius_miles);
   const normalizedRadius = Number.isFinite(parsedRadius) ? Math.min(100, Math.max(0, parsedRadius)) : 0;
 
@@ -251,9 +261,10 @@ Return STRICT JSON ONLY (no prose) as an array of events. If nothing is found, r
 Rules:
 - Use the requested timezone for dates/times.
 - Normalize: dates = YYYY-MM-DD, times = HH:MM (24h).
-- Strongly prefer LOCAL official/community sources: city/county (.gov/.us), libraries, parks & recreation, community/downtown/chamber, museums/arts, tourism/visitors/CVB, and local news sites.
+- Strongly prefer LOCAL community sources: city/county (.gov/.us/.net), libraries, parks & recreation, community/downtown/chamber, museums/arts, tourism/visitors/CVB, and local news sites.
 - Deprioritize large aggregators (Eventbrite, Ticketmaster, Meetup, Bandsintown, Facebook, Instagram) unless no local source exists.
 - Each event must include a verifiable source_url from the consulted site.
+- Aim to return 6-7 distinct events when available; include credible events even if some details are missing.
 - De-duplicate by (title + start_date + venue).
 - If any field is unknown, omit the field rather than guessing.
 
@@ -300,7 +311,6 @@ OUTPUT SCHEMA (use exactly these keys when present):
     city,
     region_or_state,
     country,
-    zipcode,
     start_date,
     end_date,
     timezone,
@@ -443,12 +453,12 @@ OUTPUT SCHEMA (use exactly these keys when present):
     }
     finalEvents = deduped.filter(ev =>
       ev?.title &&
-      ev?.start_date?.match(/^\d{4}-\d{2}-\d{2}$/) &&
-      ev?.timezone &&
-      ev?.location?.city && ev?.location?.state && ev?.location?.country &&
-      ev?.source_url
+      ev?.source_url &&
+      ev?.start_date?.match(/^\d{4}-\d{2}-\d{2}$/)
     );
   }
+
+  finalEvents = finalEvents.filter(ev => !isBlockedDomain(ev?.source_url));
 
   finalEvents = finalEvents.map(ev => {
     const provided = canonicalizeTags(ev.tags);
@@ -466,7 +476,6 @@ export const handler = async (event) => {
     const city = (qs.city || '').trim();
     const region_or_state = (qs.state || qs.region_or_state || '').trim();
     const country = (qs.country || '').trim();
-    const zipcode = (qs.zipcode || qs.zip || '').trim();
     const start_date = (qs.start_date || '').trim();
     const end_date = (qs.end_date || '').trim();
     const timezone = (qs.timezone || '').trim();
@@ -497,7 +506,7 @@ export const handler = async (event) => {
 
     const debug = ['1','true','yes','on'].includes(String(qs.debug || '').toLowerCase());
     const preferLocal = !['0','false','no','off'].includes(String(qs.preferLocal || '1').toLowerCase());
-    const items = await findEvents({ city, region_or_state, country, zipcode, start_date, end_date, timezone, radius_miles: radius_miles ?? 0, debug, preferLocal });
+    const items = await findEvents({ city, region_or_state, country, start_date, end_date, timezone, radius_miles: radius_miles ?? 0, debug, preferLocal });
     return response(200, { count: items.length, items });
   } catch (err) {
     console.error('Search AI events error', err);
