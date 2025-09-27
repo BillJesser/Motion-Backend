@@ -182,7 +182,8 @@ class MotionBackendStack extends Stack {
       entry: 'functions/events/search-ai.js',
       handler: 'handler',
       environment: {
-        GEMINI_API_KEY: process.env.GEMINI_API_KEY ?? ''
+        GEMINI_API_KEY: process.env.GEMINI_API_KEY ?? '',
+        PLACE_INDEX_NAME: placeIndex.indexName
       },
       timeout: Duration.seconds(900),
       memorySize: 256,
@@ -190,6 +191,11 @@ class MotionBackendStack extends Stack {
       // Use CJS bundling for this function to avoid ESM dynamic-require errors in Lambda.
       bundling: { format: 'cjs', target: 'node20', minify: true }
     });
+
+    searchAiFn.addToRolePolicy(new PolicyStatement({
+      actions: ['geo:SearchPlaceIndexForPosition'],
+      resources: [`arn:aws:geo:${this.region}:${this.account}:place-index/${placeIndex.indexName}`]
+    }));
 
     httpApi.addRoutes({
       path: '/events/search-ai',

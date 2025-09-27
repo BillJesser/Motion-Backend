@@ -1,10 +1,14 @@
 import Ajv from 'ajv';
+import { LocationClient, SearchPlaceIndexForPositionCommand } from '@aws-sdk/client-location';
 import { canonicalizeTags, selectTags, ALLOWED_TAGS } from '../lib/classify.js';
 
 // --- Config ---
-const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_MODEL = 'gemini-2.5-pro';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-const GEMINI_TIMEOUT_MS = 600000;
+const GEMINI_TIMEOUT_MS = 45000;
+
+const PLACE_INDEX_NAME = process.env.PLACE_INDEX_NAME || '';
+const locationClient = new LocationClient({});
 
 const BLOCKED_AGGREGATOR_DOMAINS = ['eventbrite.com','ticketmaster.com','livenation.com','bandsintown.com','meetup.com','facebook.com','instagram.com','allevents.in','eventful.com','stubhub.com','tickpick.com','vividseats.com','songkick.com'];
 
@@ -98,6 +102,33 @@ function dedupeEvents(events) {
     seen.add(key);
     return true;
   });
+}
+
+async function reverseGeocode({ lat, lng }) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || !PLACE_INDEX_NAME) return null;
+  try {
+    const command = new SearchPlaceIndexForPositionCommand({
+      IndexName: PLACE_INDEX_NAME,
+      Position: [Number(lng), Number(lat)]
+    });
+    const result = await locationClient.send(command);
+    const place = result?.Results?.[0]?.Place || {};
+    const city = (place.Municipality || place.SubRegion || place.Locality || place.Neighborhood || '').trim();
+    const region_or_state = (place.Region || place.SubRegion || '').trim();
+    const country = (place.Country || '').trim();
+    const postalCode = (place.PostalCode || '').trim();
+    if (!city || !region_or_state || !country) return null;
+    return { city, region_or_state, country, postalCode };
+  } catch (err) {
+    console.error('Reverse geocode failed', err);
+    return null;
+  }
+}
+
+function parseCoordinate(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : undefined;
 }
 
 // --- Gemini helper utilities ---
@@ -249,9 +280,9 @@ async function callGeminiForEvents({ systemPrompt, userPrompt, debug }) {
 }
 
 // --- Public orchestrator ---
-export async function findEvents({ city, region_or_state, country, start_date, end_date, timezone, radius_miles = 0, debug = false, preferLocal = true }) {
+export async function findEvents({ city, region_or_state, country, start_date, end_date, timezone, radius_miles = 5, debug = false, preferLocal = true }) {
   const parsedRadius = Number(radius_miles);
-  const normalizedRadius = Number.isFinite(parsedRadius) ? Math.min(100, Math.max(0, parsedRadius)) : 0;
+  const normalizedRadius = Number.isFinite(parsedRadius) ? Math.min(100, Math.max(0, parsedRadius)) : 5;
 
   const SYSTEM_PROMPT = `
 You are an assistant that researches real-world LOCAL public events (concerts, festivals, shows, markets, etc.) for a specified place and time window.
@@ -473,12 +504,31 @@ OUTPUT SCHEMA (use exactly these keys when present):
 export const handler = async (event) => {
   try {
     const qs = event.queryStringParameters || {};
-    const city = (qs.city || '').trim();
-    const region_or_state = (qs.state || qs.region_or_state || '').trim();
-    const country = (qs.country || '').trim();
+    let city = (qs.city || '').trim();
+    let region_or_state = (qs.state || qs.region_or_state || '').trim();
+    let country = (qs.country || '').trim();
     const start_date = (qs.start_date || '').trim();
     const end_date = (qs.end_date || '').trim();
     const timezone = (qs.timezone || '').trim();
+
+    const lat = parseCoordinate(qs.lat ?? qs.latitude ?? qs.lat_deg ?? qs.latDeg);
+    const lng = parseCoordinate(qs.lng ?? qs.lon ?? qs.longitude ?? qs.long ?? qs.lng_deg ?? qs.lngDeg);
+    if ((lat !== undefined && lng === undefined) || (lat === undefined && lng !== undefined)) {
+      return response(400, { message: 'Provide both lat and lng or neither' });
+    }
+    if (lat !== undefined && lng !== undefined) {
+      if (!PLACE_INDEX_NAME) {
+        return response(500, { message: 'Place index not configured for reverse geocoding' });
+      }
+      const resolved = await reverseGeocode({ lat, lng });
+      if (resolved) {
+        if (!city) city = resolved.city;
+        if (!region_or_state) region_or_state = resolved.region_or_state;
+        if (!country) country = resolved.country;
+      } else {
+        console.warn('Reverse geocode returned no result for coordinates', { lat, lng });
+      }
+    }
 
     const radiusCandidates = [qs.radius_miles, qs.radiusMiles, qs.radius, qs.radius_km];
     let radius_miles = undefined;
@@ -495,6 +545,9 @@ export const handler = async (event) => {
         break;
       }
     }
+    if (!Number.isFinite(radius_miles)) {
+      radius_miles = 5;
+    }
 
     if (!city || !region_or_state || !country || !start_date || !end_date || !timezone) {
       return response(400, { message: 'city, state (region_or_state), country, start_date, end_date, timezone are required' });
@@ -506,7 +559,7 @@ export const handler = async (event) => {
 
     const debug = ['1','true','yes','on'].includes(String(qs.debug || '').toLowerCase());
     const preferLocal = !['0','false','no','off'].includes(String(qs.preferLocal || '1').toLowerCase());
-    const items = await findEvents({ city, region_or_state, country, start_date, end_date, timezone, radius_miles: radius_miles ?? 0, debug, preferLocal });
+    const items = await findEvents({ city, region_or_state, country, start_date, end_date, timezone, radius_miles, debug, preferLocal });
     return response(200, { count: items.length, items });
   } catch (err) {
     console.error('Search AI events error', err);
