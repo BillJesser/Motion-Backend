@@ -8,7 +8,7 @@ import { HttpApi, CorsHttpMethod, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { CfnPlaceIndex } from 'aws-cdk-lib/aws-location';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
-import { UserPool, UserPoolClient, AccountRecovery } from 'aws-cdk-lib/aws-cognito';
+import { UserPool, UserPoolClient, AccountRecovery, UserPoolOperation } from 'aws-cdk-lib/aws-cognito';
 
 class MotionBackendStack extends Stack {
   constructor(scope, id, props) {
@@ -26,7 +26,7 @@ class MotionBackendStack extends Stack {
     });
 
     const userPool = new UserPool(this, 'UserPool', {
-      selfSignUpEnabled: false,
+      selfSignUpEnabled: true,
       signInAliases: { email: true },
       autoVerify: { email: true },
       passwordPolicy: {
@@ -55,7 +55,8 @@ class MotionBackendStack extends Stack {
     const commonEnv = {
       USERS_TABLE: usersTable.tableName,
       USER_POOL_ID: userPool.userPoolId,
-      USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId
+      USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId,
+      APP_NAME: process.env.APP_NAME ?? 'Motion'
     };
 
     const signupFn = new NodejsFunction(this, 'SignupFunction', {
@@ -114,13 +115,43 @@ class MotionBackendStack extends Stack {
       }
     });
 
+    const confirmSignupFn = new NodejsFunction(this, 'ConfirmSignupFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/auth/confirm-signup.js',
+      handler: 'handler',
+      environment: commonEnv,
+      timeout: Duration.seconds(10),
+      bundling: {
+        format: 'esm',
+        target: 'node20',
+        minify: true,
+        sourceMap: false,
+      }
+    });
+
+    const customMessageFn = new NodejsFunction(this, 'CustomMessageFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/auth/custom-message.js',
+      handler: 'handler',
+      environment: { APP_NAME: process.env.APP_NAME ?? 'Motion' },
+      timeout: Duration.seconds(10),
+      bundling: {
+        format: 'esm',
+        target: 'node20',
+        minify: true,
+        sourceMap: false,
+      }
+    });
+
+    userPool.addTrigger(UserPoolOperation.CUSTOM_MESSAGE, customMessageFn);
+
     usersTable.grantReadWriteData(signupFn);
     usersTable.grantReadData(signinFn);
+    usersTable.grantReadWriteData(confirmSignupFn);
 
     signupFn.addToRolePolicy(new PolicyStatement({
       actions: [
-        'cognito-idp:AdminCreateUser',
-        'cognito-idp:AdminSetUserPassword',
+        'cognito-idp:SignUp',
         'cognito-idp:AdminGetUser',
         'cognito-idp:AdminDeleteUser'
       ],
@@ -130,7 +161,6 @@ class MotionBackendStack extends Stack {
     signinFn.addToRolePolicy(new PolicyStatement({
       actions: [
         'cognito-idp:AdminInitiateAuth',
-        'cognito-idp:AdminRespondToAuthChallenge',
         'cognito-idp:AdminGetUser'
       ],
       resources: [userPool.userPoolArn]
@@ -146,6 +176,13 @@ class MotionBackendStack extends Stack {
     confirmForgotPasswordFn.addToRolePolicy(new PolicyStatement({
       actions: [
         'cognito-idp:ConfirmForgotPassword'
+      ],
+      resources: [userPool.userPoolArn]
+    }));
+
+    confirmSignupFn.addToRolePolicy(new PolicyStatement({
+      actions: [
+        'cognito-idp:ConfirmSignUp'
       ],
       resources: [userPool.userPoolArn]
     }));
@@ -185,6 +222,12 @@ class MotionBackendStack extends Stack {
       path: '/auth/confirm-forgot-password',
       methods: [HttpMethod.POST],
       integration: new HttpLambdaIntegration('ConfirmForgotPasswordIntegration', confirmForgotPasswordFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/auth/confirm-signup',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('ConfirmSignupIntegration', confirmSignupFn)
     });
 
     new CfnOutput(this, 'ApiEndpoint', { value: httpApi.apiEndpoint });

@@ -55,6 +55,9 @@ export const handler = async (event) => {
       }
       authResult = authResponse.AuthenticationResult;
     } catch (err) {
+      if (err?.name === 'UserNotConfirmedException') {
+        return response(403, { message: 'Account is not verified. Please confirm your email.' });
+      }
       if (err?.name === 'NotAuthorizedException' || err?.name === 'UserNotFoundException') {
         return response(401, { message: 'Invalid credentials' });
       }
