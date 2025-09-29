@@ -8,6 +8,7 @@ import { HttpApi, CorsHttpMethod, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { CfnPlaceIndex } from 'aws-cdk-lib/aws-location';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
+import { UserPool, UserPoolClient, AccountRecovery } from 'aws-cdk-lib/aws-cognito';
 
 class MotionBackendStack extends Stack {
   constructor(scope, id, props) {
@@ -19,10 +20,42 @@ class MotionBackendStack extends Stack {
       billingMode: BillingMode.PAY_PER_REQUEST,
       removalPolicy: RemovalPolicy.RETAIN // change to DESTROY for dev only
     });
+    usersTable.addGlobalSecondaryIndex({
+      indexName: 'BySub',
+      partitionKey: { name: 'cognitoSub', type: AttributeType.STRING }
+    });
+
+    const userPool = new UserPool(this, 'UserPool', {
+      selfSignUpEnabled: false,
+      signInAliases: { email: true },
+      autoVerify: { email: true },
+      passwordPolicy: {
+        minLength: 8,
+        requireDigits: true,
+        requireLowercase: true,
+        requireUppercase: true,
+        requireSymbols: false
+      },
+      accountRecovery: AccountRecovery.EMAIL_ONLY,
+      removalPolicy: RemovalPolicy.RETAIN
+    });
+
+    const userPoolClient = new UserPoolClient(this, 'UserPoolClient', {
+      userPool,
+      authFlows: {
+        adminUserPassword: true,
+        userPassword: true
+      },
+      accessTokenValidity: Duration.hours(1),
+      idTokenValidity: Duration.hours(1),
+      refreshTokenValidity: Duration.days(30),
+      generateSecret: false
+    });
 
     const commonEnv = {
       USERS_TABLE: usersTable.tableName,
-      JWT_SECRET: process.env.JWT_SECRET ?? ''
+      USER_POOL_ID: userPool.userPoolId,
+      USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId
     };
 
     const signupFn = new NodejsFunction(this, 'SignupFunction', {
@@ -53,8 +86,69 @@ class MotionBackendStack extends Stack {
       }
     });
 
+    const forgotPasswordFn = new NodejsFunction(this, 'ForgotPasswordFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/auth/forgot-password.js',
+      handler: 'handler',
+      environment: commonEnv,
+      timeout: Duration.seconds(10),
+      bundling: {
+        format: 'esm',
+        target: 'node20',
+        minify: true,
+        sourceMap: false,
+      }
+    });
+
+    const confirmForgotPasswordFn = new NodejsFunction(this, 'ConfirmForgotPasswordFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/auth/confirm-forgot-password.js',
+      handler: 'handler',
+      environment: commonEnv,
+      timeout: Duration.seconds(10),
+      bundling: {
+        format: 'esm',
+        target: 'node20',
+        minify: true,
+        sourceMap: false,
+      }
+    });
+
     usersTable.grantReadWriteData(signupFn);
     usersTable.grantReadData(signinFn);
+
+    signupFn.addToRolePolicy(new PolicyStatement({
+      actions: [
+        'cognito-idp:AdminCreateUser',
+        'cognito-idp:AdminSetUserPassword',
+        'cognito-idp:AdminGetUser',
+        'cognito-idp:AdminDeleteUser'
+      ],
+      resources: [userPool.userPoolArn]
+    }));
+
+    signinFn.addToRolePolicy(new PolicyStatement({
+      actions: [
+        'cognito-idp:AdminInitiateAuth',
+        'cognito-idp:AdminRespondToAuthChallenge',
+        'cognito-idp:AdminGetUser'
+      ],
+      resources: [userPool.userPoolArn]
+    }));
+
+    forgotPasswordFn.addToRolePolicy(new PolicyStatement({
+      actions: [
+        'cognito-idp:ForgotPassword'
+      ],
+      resources: [userPool.userPoolArn]
+    }));
+
+    confirmForgotPasswordFn.addToRolePolicy(new PolicyStatement({
+      actions: [
+        'cognito-idp:ConfirmForgotPassword'
+      ],
+      resources: [userPool.userPoolArn]
+    }));
 
     const httpApi = new HttpApi(this, 'MotionHttpApi', {
       apiName: 'motion-api',
@@ -81,8 +175,22 @@ class MotionBackendStack extends Stack {
       integration: new HttpLambdaIntegration('SigninIntegration', signinFn)
     });
 
+    httpApi.addRoutes({
+      path: '/auth/forgot-password',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('ForgotPasswordIntegration', forgotPasswordFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/auth/confirm-forgot-password',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('ConfirmForgotPasswordIntegration', confirmForgotPasswordFn)
+    });
+
     new CfnOutput(this, 'ApiEndpoint', { value: httpApi.apiEndpoint });
     new CfnOutput(this, 'UsersTableName', { value: usersTable.tableName });
+    new CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
+    new CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
 
     // Events Table
     const eventsTable = new Table(this, 'EventsTable', {
