@@ -129,12 +129,6 @@ class MotionBackendStack extends Stack {
       }
     });
 
-    const userFunctionsEnv = {
-      USERS_TABLE: usersTable.tableName,
-      EVENTS_TABLE: eventsTable.tableName,
-      AI_EVENTS_TABLE: aiEventsTable.tableName
-    };
-
     const customMessageFn = new NodejsFunction(this, 'CustomMessageFunction', {
       runtime: Runtime.NODEJS_20_X,
       entry: 'functions/auth/custom-message.js',
@@ -150,6 +144,98 @@ class MotionBackendStack extends Stack {
     });
 
     userPool.addTrigger(UserPoolOperation.CUSTOM_MESSAGE, customMessageFn);
+
+    httpApi.addRoutes({
+      path: '/auth/confirm-signup',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('ConfirmSignupIntegration', confirmSignupFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/users/saved-events',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('SaveEventIntegration', saveEventFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/users/saved-events',
+      methods: [HttpMethod.DELETE],
+      integration: new HttpLambdaIntegration('RemoveSavedEventIntegration', removeSavedEventFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/users/saved-events',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('GetSavedEventsIntegration', getSavedEventsFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/users/profile',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('GetUserProfileIntegration', getUserProfileFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/events/{eventId}',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('GetEventIntegration', getEventFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/ai-events/{eventId}',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('GetAiEventIntegration', getAiEventFn)
+    });
+
+    new CfnOutput(this, 'ApiEndpoint', { value: httpApi.apiEndpoint });
+    new CfnOutput(this, 'UsersTableName', { value: usersTable.tableName });
+    new CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
+    new CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
+
+    // Events Table
+    const eventsTable = new Table(this, 'EventsTable', {
+      tableName: 'MotionEvents',
+      partitionKey: { name: 'eventId', type: AttributeType.STRING },
+      billingMode: BillingMode.PAY_PER_REQUEST,
+      removalPolicy: RemovalPolicy.RETAIN
+    });
+
+    const aiEventsTable = new Table(this, 'AiEventsTable', {
+      tableName: 'MotionAiEvents',
+      partitionKey: { name: 'eventId', type: AttributeType.STRING },
+      billingMode: BillingMode.PAY_PER_REQUEST,
+      removalPolicy: RemovalPolicy.RETAIN
+    });
+    // Add a GSI for geospatial + time queries. Partition by geohash prefix (length 5), sort by timestamp
+    eventsTable.addGlobalSecondaryIndex({
+      indexName: 'GeoTime',
+      partitionKey: { name: 'gh5', type: AttributeType.STRING },
+      sortKey: { name: 'dateTime', type: AttributeType.NUMBER }
+    });
+    // Add a GSI to fetch events by creator email, sorted by start time
+    eventsTable.addGlobalSecondaryIndex({
+      indexName: 'ByCreatorTime',
+      partitionKey: { name: 'createdByEmail', type: AttributeType.STRING },
+      sortKey: { name: 'dateTime', type: AttributeType.NUMBER }
+    });
+
+    // Amazon Location Place Index for geocoding zip/address to coordinates
+    const placeIndex = new CfnPlaceIndex(this, 'PlaceIndex', {
+      dataSource: 'Esri',
+      indexName: 'motion-place-index'
+    });
+
+    const commonEventEnv = {
+      EVENTS_TABLE: eventsTable.tableName,
+      AI_EVENTS_TABLE: aiEventsTable.tableName,
+      PLACE_INDEX_NAME: placeIndex.indexName
+    };
+
+    const userFunctionsEnv = {
+      USERS_TABLE: usersTable.tableName,
+      EVENTS_TABLE: eventsTable.tableName,
+      AI_EVENTS_TABLE: aiEventsTable.tableName
+    };
 
     const saveEventFn = new NodejsFunction(this, 'SaveEventFunction', {
       runtime: Runtime.NODEJS_20_X,
@@ -287,92 +373,6 @@ class MotionBackendStack extends Stack {
       methods: [HttpMethod.POST],
       integration: new HttpLambdaIntegration('ConfirmForgotPasswordIntegration', confirmForgotPasswordFn)
     });
-
-    httpApi.addRoutes({
-      path: '/auth/confirm-signup',
-      methods: [HttpMethod.POST],
-      integration: new HttpLambdaIntegration('ConfirmSignupIntegration', confirmSignupFn)
-    });
-
-    httpApi.addRoutes({
-      path: '/users/saved-events',
-      methods: [HttpMethod.POST],
-      integration: new HttpLambdaIntegration('SaveEventIntegration', saveEventFn)
-    });
-
-    httpApi.addRoutes({
-      path: '/users/saved-events',
-      methods: [HttpMethod.DELETE],
-      integration: new HttpLambdaIntegration('RemoveSavedEventIntegration', removeSavedEventFn)
-    });
-
-    httpApi.addRoutes({
-      path: '/users/saved-events',
-      methods: [HttpMethod.GET],
-      integration: new HttpLambdaIntegration('GetSavedEventsIntegration', getSavedEventsFn)
-    });
-
-    httpApi.addRoutes({
-      path: '/users/profile',
-      methods: [HttpMethod.GET],
-      integration: new HttpLambdaIntegration('GetUserProfileIntegration', getUserProfileFn)
-    });
-
-    httpApi.addRoutes({
-      path: '/events/{eventId}',
-      methods: [HttpMethod.GET],
-      integration: new HttpLambdaIntegration('GetEventIntegration', getEventFn)
-    });
-
-    httpApi.addRoutes({
-      path: '/ai-events/{eventId}',
-      methods: [HttpMethod.GET],
-      integration: new HttpLambdaIntegration('GetAiEventIntegration', getAiEventFn)
-    });
-
-    new CfnOutput(this, 'ApiEndpoint', { value: httpApi.apiEndpoint });
-    new CfnOutput(this, 'UsersTableName', { value: usersTable.tableName });
-    new CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
-    new CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
-
-    // Events Table
-    const eventsTable = new Table(this, 'EventsTable', {
-      tableName: 'MotionEvents',
-      partitionKey: { name: 'eventId', type: AttributeType.STRING },
-      billingMode: BillingMode.PAY_PER_REQUEST,
-      removalPolicy: RemovalPolicy.RETAIN
-    });
-
-    const aiEventsTable = new Table(this, 'AiEventsTable', {
-      tableName: 'MotionAiEvents',
-      partitionKey: { name: 'eventId', type: AttributeType.STRING },
-      billingMode: BillingMode.PAY_PER_REQUEST,
-      removalPolicy: RemovalPolicy.RETAIN
-    });
-    // Add a GSI for geospatial + time queries. Partition by geohash prefix (length 5), sort by timestamp
-    eventsTable.addGlobalSecondaryIndex({
-      indexName: 'GeoTime',
-      partitionKey: { name: 'gh5', type: AttributeType.STRING },
-      sortKey: { name: 'dateTime', type: AttributeType.NUMBER }
-    });
-    // Add a GSI to fetch events by creator email, sorted by start time
-    eventsTable.addGlobalSecondaryIndex({
-      indexName: 'ByCreatorTime',
-      partitionKey: { name: 'createdByEmail', type: AttributeType.STRING },
-      sortKey: { name: 'dateTime', type: AttributeType.NUMBER }
-    });
-
-    // Amazon Location Place Index for geocoding zip/address to coordinates
-    const placeIndex = new CfnPlaceIndex(this, 'PlaceIndex', {
-      dataSource: 'Esri',
-      indexName: 'motion-place-index'
-    });
-
-    const commonEventEnv = {
-      EVENTS_TABLE: eventsTable.tableName,
-      AI_EVENTS_TABLE: aiEventsTable.tableName,
-      PLACE_INDEX_NAME: placeIndex.indexName
-    };
 
     const createEventFn = new NodejsFunction(this, 'CreateEventFunction', {
       runtime: Runtime.NODEJS_20_X,
