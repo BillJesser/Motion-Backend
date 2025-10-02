@@ -182,6 +182,108 @@ class MotionBackendStack extends Stack {
       integration: new HttpLambdaIntegration('ConfirmForgotPasswordIntegration', confirmForgotPasswordFn)
     });
 
+    httpApi.addRoutes({
+      path: '/auth/confirm-signup',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('ConfirmSignupIntegration', confirmSignupFn)
+    });
+
+    const eventsTable = new Table(this, 'EventsTable', {
+      tableName: 'MotionEvents',
+      partitionKey: { name: 'eventId', type: AttributeType.STRING },
+      billingMode: BillingMode.PAY_PER_REQUEST,
+      removalPolicy: RemovalPolicy.RETAIN
+    });
+
+    const aiEventsTable = new Table(this, 'AiEventsTable', {
+      tableName: 'MotionAiEvents',
+      partitionKey: { name: 'eventId', type: AttributeType.STRING },
+      billingMode: BillingMode.PAY_PER_REQUEST,
+      removalPolicy: RemovalPolicy.RETAIN
+    });
+
+    eventsTable.addGlobalSecondaryIndex({
+      indexName: 'GeoTime',
+      partitionKey: { name: 'gh5', type: AttributeType.STRING },
+      sortKey: { name: 'dateTime', type: AttributeType.NUMBER }
+    });
+    eventsTable.addGlobalSecondaryIndex({
+      indexName: 'ByCreatorTime',
+      partitionKey: { name: 'createdByEmail', type: AttributeType.STRING },
+      sortKey: { name: 'dateTime', type: AttributeType.NUMBER }
+    });
+
+    const placeIndex = new CfnPlaceIndex(this, 'PlaceIndex', {
+      dataSource: 'Esri',
+      indexName: 'motion-place-index'
+    });
+
+    const commonEventEnv = {
+      EVENTS_TABLE: eventsTable.tableName,
+      AI_EVENTS_TABLE: aiEventsTable.tableName,
+      PLACE_INDEX_NAME: placeIndex.indexName
+    };
+
+    const userFunctionsEnv = {
+      USERS_TABLE: usersTable.tableName,
+      EVENTS_TABLE: eventsTable.tableName,
+      AI_EVENTS_TABLE: aiEventsTable.tableName
+    };
+
+    const saveEventFn = new NodejsFunction(this, 'SaveEventFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/users/save-event.js',
+      handler: 'handler',
+      environment: userFunctionsEnv,
+      timeout: Duration.seconds(10),
+      bundling: { format: 'esm', target: 'node20', minify: true, sourceMap: false }
+    });
+
+    const removeSavedEventFn = new NodejsFunction(this, 'RemoveSavedEventFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/users/remove-saved-event.js',
+      handler: 'handler',
+      environment: userFunctionsEnv,
+      timeout: Duration.seconds(10),
+      bundling: { format: 'esm', target: 'node20', minify: true, sourceMap: false }
+    });
+
+    const getUserProfileFn = new NodejsFunction(this, 'GetUserProfileFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/users/get-profile.js',
+      handler: 'handler',
+      environment: userFunctionsEnv,
+      timeout: Duration.seconds(10),
+      bundling: { format: 'esm', target: 'node20', minify: true, sourceMap: false }
+    });
+
+    const getSavedEventsFn = new NodejsFunction(this, 'GetSavedEventsFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/users/get-saved-events.js',
+      handler: 'handler',
+      environment: userFunctionsEnv,
+      timeout: Duration.seconds(15),
+      bundling: { format: 'esm', target: 'node20', minify: true, sourceMap: false }
+    });
+
+    const getEventFn = new NodejsFunction(this, 'GetEventFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/events/get-event.js',
+      handler: 'handler',
+      environment: { EVENTS_TABLE: eventsTable.tableName },
+      timeout: Duration.seconds(10),
+      bundling: { format: 'esm', target: 'node20', minify: true, sourceMap: false }
+    });
+
+    const getAiEventFn = new NodejsFunction(this, 'GetAiEventFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/events/get-ai-event.js',
+      handler: 'handler',
+      environment: { AI_EVENTS_TABLE: aiEventsTable.tableName },
+      timeout: Duration.seconds(10),
+      bundling: { format: 'esm', target: 'node20', minify: true, sourceMap: false }
+    });
+
     const createEventFn = new NodejsFunction(this, 'CreateEventFunction', {
       runtime: Runtime.NODEJS_20_X,
       entry: 'functions/events/create.js',
@@ -190,17 +292,6 @@ class MotionBackendStack extends Stack {
       timeout: Duration.seconds(15),
       bundling: { format: 'esm', target: 'node20', minify: true }
     });
-    eventsTable.grantReadWriteData(createEventFn);
-    eventsTable.grantReadData(saveEventFn);
-    eventsTable.grantReadData(getSavedEventsFn);
-    eventsTable.grantReadData(getEventFn);
-    // Allow geocoding from Amazon Location
-    createEventFn.addToRolePolicy(new PolicyStatement({
-      actions: ['geo:SearchPlaceIndexForText'],
-      resources: [
-        `arn:aws:geo:${this.region}:${this.account}:place-index/${placeIndex.indexName}`
-      ]
-    }));
 
     const searchEventsFn = new NodejsFunction(this, 'SearchEventsFunction', {
       runtime: Runtime.NODEJS_20_X,
@@ -210,16 +301,6 @@ class MotionBackendStack extends Stack {
       timeout: Duration.seconds(15),
       bundling: { format: 'esm', target: 'node20', minify: true }
     });
-    eventsTable.grantReadData(searchEventsFn);
-    aiEventsTable.grantReadWriteData(saveEventFn);
-    aiEventsTable.grantReadData(getSavedEventsFn);
-    aiEventsTable.grantReadData(getAiEventFn);
-    searchEventsFn.addToRolePolicy(new PolicyStatement({
-      actions: ['geo:SearchPlaceIndexForText'],
-      resources: [
-        `arn:aws:geo:${this.region}:${this.account}:place-index/${placeIndex.indexName}`
-      ]
-    }));
 
     const byUserEventsFn = new NodejsFunction(this, 'ByUserEventsFunction', {
       runtime: Runtime.NODEJS_20_X,
@@ -229,7 +310,109 @@ class MotionBackendStack extends Stack {
       timeout: Duration.seconds(15),
       bundling: { format: 'esm', target: 'node20', minify: true }
     });
+
+    const searchAiFn = new NodejsFunction(this, 'SearchAiEventsFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/events/search-ai.js',
+      handler: 'handler',
+      environment: {
+        GEMINI_API_KEY: process.env.GEMINI_API_KEY ?? '',
+        PLACE_INDEX_NAME: placeIndex.indexName
+      },
+      timeout: Duration.seconds(900),
+      memorySize: 256,
+      bundling: { format: 'cjs', target: 'node20', minify: true }
+    });
+
+    usersTable.grantReadWriteData(signupFn);
+    usersTable.grantReadData(signinFn);
+    usersTable.grantReadWriteData(confirmSignupFn);
+    usersTable.grantReadWriteData(saveEventFn);
+    usersTable.grantReadWriteData(removeSavedEventFn);
+    usersTable.grantReadData(getUserProfileFn);
+    usersTable.grantReadData(getSavedEventsFn);
+
+    eventsTable.grantReadWriteData(createEventFn);
+    eventsTable.grantReadData(searchEventsFn);
     eventsTable.grantReadData(byUserEventsFn);
+    eventsTable.grantReadData(getEventFn);
+    eventsTable.grantReadData(saveEventFn);
+    eventsTable.grantReadData(getSavedEventsFn);
+
+    aiEventsTable.grantReadWriteData(saveEventFn);
+    aiEventsTable.grantReadData(getSavedEventsFn);
+    aiEventsTable.grantReadData(getAiEventFn);
+
+    signupFn.addToRolePolicy(new PolicyStatement({
+      actions: [
+        'cognito-idp:SignUp',
+        'cognito-idp:AdminGetUser',
+        'cognito-idp:AdminDeleteUser'
+      ],
+      resources: [userPool.userPoolArn]
+    }));
+
+    signinFn.addToRolePolicy(new PolicyStatement({
+      actions: [
+        'cognito-idp:AdminInitiateAuth',
+        'cognito-idp:AdminGetUser'
+      ],
+      resources: [userPool.userPoolArn]
+    }));
+
+    forgotPasswordFn.addToRolePolicy(new PolicyStatement({
+      actions: ['cognito-idp:ForgotPassword'],
+      resources: [userPool.userPoolArn]
+    }));
+
+    confirmForgotPasswordFn.addToRolePolicy(new PolicyStatement({
+      actions: ['cognito-idp:ConfirmForgotPassword'],
+      resources: [userPool.userPoolArn]
+    }));
+
+    confirmSignupFn.addToRolePolicy(new PolicyStatement({
+      actions: ['cognito-idp:ConfirmSignUp'],
+      resources: [userPool.userPoolArn]
+    }));
+
+    createEventFn.addToRolePolicy(new PolicyStatement({
+      actions: ['geo:SearchPlaceIndexForText'],
+      resources: [`arn:aws:geo:${this.region}:${this.account}:place-index/${placeIndex.indexName}`]
+    }));
+
+    searchEventsFn.addToRolePolicy(new PolicyStatement({
+      actions: ['geo:SearchPlaceIndexForText'],
+      resources: [`arn:aws:geo:${this.region}:${this.account}:place-index/${placeIndex.indexName}`]
+    }));
+
+    searchAiFn.addToRolePolicy(new PolicyStatement({
+      actions: ['geo:SearchPlaceIndexForPosition'],
+      resources: [`arn:aws:geo:${this.region}:${this.account}:place-index/${placeIndex.indexName}`]
+    }));
+
+    httpApi.addRoutes({
+      path: '/users/saved-events',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('SaveEventIntegration', saveEventFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/users/saved-events',
+      methods: [HttpMethod.DELETE],
+      integration: new HttpLambdaIntegration('RemoveSavedEventIntegration', removeSavedEventFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/users/saved-events',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('GetSavedEventsIntegration', getSavedEventsFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/users/profile',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('GetUserProfileIntegration', getUserProfileFn)
+    });
 
     httpApi.addRoutes({
       path: '/events',
@@ -249,44 +432,23 @@ class MotionBackendStack extends Stack {
       integration: new HttpLambdaIntegration('ByUserEventsIntegration', byUserEventsFn)
     });
 
-    // AI-powered web search for events
-    const searchAiFn = new NodejsFunction(this, 'SearchAiEventsFunction', {
-      runtime: Runtime.NODEJS_20_X,
-      entry: 'functions/events/search-ai.js',
-      handler: 'handler',
-      environment: {
-        GEMINI_API_KEY: process.env.GEMINI_API_KEY ?? '',
-        PLACE_INDEX_NAME: placeIndex.indexName
-      },
-      timeout: Duration.seconds(900),
-      memorySize: 256,
-      // Cheerio/Ajv pull in modules that use require('buffer') internally.
-      // Use CJS bundling for this function to avoid ESM dynamic-require errors in Lambda.
-      bundling: { format: 'cjs', target: 'node20', minify: true }
+    httpApi.addRoutes({
+      path: '/events/{eventId}',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('GetEventIntegration', getEventFn)
     });
 
-    searchAiFn.addToRolePolicy(new PolicyStatement({
-      actions: ['geo:SearchPlaceIndexForPosition'],
-      resources: [`arn:aws:geo:${this.region}:${this.account}:place-index/${placeIndex.indexName}`]
-    }));
+    httpApi.addRoutes({
+      path: '/ai-events/{eventId}',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('GetAiEventIntegration', getAiEventFn)
+    });
 
     httpApi.addRoutes({
       path: '/events/search-ai',
       methods: [HttpMethod.GET],
       integration: new HttpLambdaIntegration('SearchAiEventsIntegration', searchAiFn)
     });
-
-    // Also expose a Lambda Function URL for longer-running requests (bypasses API GW 30s limit)
-    const searchAiFnUrl = searchAiFn.addFunctionUrl({
-      authType: FunctionUrlAuthType.NONE,
-      cors: {
-        allowedOrigins: ['*'],
-        allowedHeaders: ['*'],
-        allowedMethods: [LambdaHttpMethod.GET]
-      }
-    });
-
-    new CfnOutput(this, 'SearchAiFunctionUrl', { value: searchAiFnUrl.url });
 
     new CfnOutput(this, 'EventsTableName', { value: eventsTable.tableName });
     new CfnOutput(this, 'AiEventsTableName', { value: aiEventsTable.tableName });
