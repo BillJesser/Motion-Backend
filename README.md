@@ -1,13 +1,13 @@
 # Motion Backend API Contracts
 
-All endpoints return JSON and are deployed behind the same base URL (see the `ApiEndpoint` stack output). Unless noted otherwise, responses include the header `Content-Type: application/json` and `Access-Control-Allow-Origin: *`.
+All endpoints return JSON and share the same base URL (see the `ApiEndpoint` CDK output). Unless noted, responses include `Content-Type: application/json` and `Access-Control-Allow-Origin: *`.
 
 ---
 
 ## Authentication
 
 ### POST `/auth/signup`
-Create a Cognito user and store a corresponding profile. A verification email is sent automatically; the account remains unconfirmed until `/auth/confirm-signup` succeeds.
+Register a user with Cognito and create a profile record. A verification email is sent automatically.
 
 **Request Body**
 ```json
@@ -26,15 +26,15 @@ Create a Cognito user and store a corresponding profile. A verification email is
 }
 ```
 
-**Error Codes**
+**Errors**
 - `400` – missing email or password
 - `409` – user already exists
-- `500` – user pool not configured or Cognito error
+- `500` – Cognito or DynamoDB failure
 
 ---
 
 ### POST `/auth/confirm-signup`
-Confirm the verification code that Cognito emailed to the user.
+Confirm the verification code emailed by Cognito. Marks the user profile as verified.
 
 **Request Body**
 ```json
@@ -51,7 +51,7 @@ Confirm the verification code that Cognito emailed to the user.
 }
 ```
 
-**Error Codes**
+**Errors**
 - `400` – missing email/code or invalid/expired code
 - `404` – user not found
 - `500` – Cognito/DynamoDB error
@@ -59,7 +59,7 @@ Confirm the verification code that Cognito emailed to the user.
 ---
 
 ### POST `/auth/signin`
-Authenticate through Cognito. Returns Cognito tokens plus the stored user profile details.
+Authenticate via Cognito. Returns Cognito tokens and stored profile data (including saved events).
 
 **Request Body**
 ```json
@@ -80,21 +80,25 @@ Authenticate through Cognito. Returns Cognito tokens plus the stored user profil
   "user": {
     "email": "user@example.com",
     "userId": "f2f5e9c1-...",
-    "savedEvents": []
+    "savedEvents": [
+      { "eventId": "ev-123", "source": "motion" },
+      { "eventId": "ai-456", "source": "ai" }
+    ],
+    "isVerified": true
   }
 }
 ```
 
-**Error Codes**
-- `400` – missing email or password
+**Errors**
+- `400` – missing credentials
 - `401` – invalid credentials
-- `403` – account not verified (`UserNotConfirmedException`)
+- `403` – account not verified
 - `500` – Cognito error
 
 ---
 
 ### POST `/auth/forgot-password`
-Kick off the password reset flow. Cognito emails a code regardless of whether the account exists.
+Send a password reset code. Cognito responds identically whether the account exists.
 
 **Request Body**
 ```json
@@ -112,12 +116,12 @@ Kick off the password reset flow. Cognito emails a code regardless of whether th
 
 **Errors**
 - `400` – missing email
-- `500` – user pool not configured or Cognito error
+- `500` – Cognito error
 
 ---
 
 ### POST `/auth/confirm-forgot-password`
-Finalize a password reset with the emailed code.
+Complete the password reset using the emailed code.
 
 **Request Body**
 ```json
@@ -130,21 +134,166 @@ Finalize a password reset with the emailed code.
 
 **Success Response** `200`
 ```json
+{ "message": "Password updated successfully" }
+```
+
+**Errors**
+- `400` – missing or invalid fields
+- `500` – Cognito error
+
+---
+
+## Users
+
+### GET `/users/profile`
+Retrieve a user profile (no Cognito credentials required).
+
+**Query Parameters**
+- `email` (required)
+
+**Success Response** `200`
+```json
 {
-  "message": "Password updated successfully"
+  "profile": {
+    "email": "user@example.com",
+    "cognitoSub": "f2f5e9c1-...",
+    "isVerified": true,
+    "savedEvents": [
+      { "eventId": "ev-123", "source": "motion" },
+      { "eventId": "ai-456", "source": "ai" }
+    ],
+    "createdAt": "2025-09-29T18:00:00Z",
+    "updatedAt": "2025-09-29T18:30:00Z"
+  }
 }
 ```
 
-**Error Codes**
-- `400` – missing fields or invalid/expired code
-- `500` – user pool not configured or Cognito error
+**Errors**
+- `400` – missing email
+- `404` – user not found
+- `500` – DynamoDB error
+
+---
+
+### POST `/users/saved-events`
+Save an event to the user’s profile. Motion events must already exist in `MotionEvents`; AI events are persisted in `MotionAiEvents` when saved.
+
+**Request Body (motion event)**
+```json
+{
+  "email": "user@example.com",
+  "source": "motion",
+  "eventId": "event-uuid"
+}
+```
+
+**Request Body (AI event)**
+```json
+{
+  "email": "user@example.com",
+  "source": "ai",
+  "event": {
+    "title": "Downtown Art Walk",
+    "description": "Gallery crawl",
+    "start_date": "2025-10-02",
+    "end_date": "2025-10-02",
+    "start_time": "18:00",
+    "end_time": "21:00",
+    "timezone": "America/New_York",
+    "location": {
+      "venue": "Town Square",
+      "city": "Alpharetta",
+      "state": "GA",
+      "country": "USA"
+    },
+    "source_url": "https://example.com/events/art-walk",
+    "tags": ["arts", "community"]
+  }
+}
+```
+
+**Success Response** `200`
+```json
+{
+  "message": "Event saved",
+  "savedEvents": [
+    { "eventId": "event-uuid", "source": "motion" },
+    { "eventId": "9f6567d0-...", "source": "ai" }
+  ]
+}
+```
+
+**Errors**
+- `400` – missing fields or invalid payload
+- `403` – account not verified
+- `404` – user (or motion event) not found
+- `500` – DynamoDB error
+
+---
+
+### DELETE `/users/saved-events`
+Remove an event from the user’s saved list.
+
+**Request Body**
+```json
+{
+  "email": "user@example.com",
+  "eventId": "event-uuid",
+  "source": "motion" // optional, used when both sources share an ID
+}
+```
+
+**Success Response** `200`
+```json
+{
+  "message": "Event removed",
+  "savedEvents": []
+}
+```
+
+**Errors**
+- `400` – missing email or eventId
+- `404` – user not found
+- `500` – DynamoDB error
+
+---
+
+### GET `/users/saved-events`
+Return the user’s saved events with expanded details fetched from `MotionEvents` and `MotionAiEvents`.
+
+**Query Parameters**
+- `email` (required)
+
+**Success Response** `200`
+```json
+{
+  "count": 2,
+  "items": [
+    {
+      "eventId": "event-uuid",
+      "source": "motion",
+      "event": { "eventId": "event-uuid", "name": "City Market", ... }
+    },
+    {
+      "eventId": "9f6567d0-...",
+      "source": "ai",
+      "event": { "title": "Downtown Art Walk", ... }
+    }
+  ]
+}
+```
+
+**Errors**
+- `400` – missing email
+- `404` – user not found
+- `500` – DynamoDB error
 
 ---
 
 ## Events
 
 ### POST `/events`
-Create a community event and persist it to DynamoDB. A geohash is computed from either passed coordinates or a geocoded address.
+Create a community event in `MotionEvents` with geohash metadata.
 
 **Request Body**
 ```json
@@ -162,11 +311,10 @@ Create a community event and persist it to DynamoDB. A geohash is computed from 
     "zip": "30009"
   },
   "coordinates": { "lat": 34.0736, "lng": -84.2814 },
-  "photoUrls": ["https://.../market.jpg"],
+  "photoUrls": ["https://example.com/market.jpg"],
   "tags": ["community", "market"]
 }
 ```
-*You must provide either `coordinates` (lat/lng) or a geocodable address/zip in `location`.*
 
 **Success Response** `201`
 ```json
@@ -176,25 +324,20 @@ Create a community event and persist it to DynamoDB. A geohash is computed from 
 }
 ```
 
-**Error Codes**
-- `400` – missing required fields or invalid/ungordable address
-- `500` – DynamoDB/AWS Location error
+**Errors**
+- `400` – missing required fields or ungodable address
+- `500` – DynamoDB or AWS Location failure
 
 ---
 
 ### GET `/events/search`
-Find stored events near a location with optional time and tag filters.
+Query stored events near a location.
 
 **Query Parameters**
-- `lat` & `lng` (preferred) *or* `address`/`zip`
-- `radiusMiles` (default 10, max 50 via query logic)
+- `lat` & `lng` (preferred) or `address`/`zip`
+- `radiusMiles` (default 10)
 - `startTime`, `endTime` (ISO 8601)
 - `tags` (comma-separated)
-
-**Sample Request**
-```
-/events/search?lat=34.0736&lng=-84.2814&radiusMiles=15&startTime=2025-10-01T00:00:00Z
-```
 
 **Success Response** `200`
 ```json
@@ -202,97 +345,89 @@ Find stored events near a location with optional time and tag filters.
   "center": { "lat": 34.0736, "lng": -84.2814 },
   "radiusMiles": 15,
   "count": 2,
-  "items": [
-    {
-      "eventId": "...",
-      "name": "City Market",
-      "dateTime": 1769887200,
-      "endTime": 1769905200,
-      "location": { ... },
-      "coordinates": { "lat": 34.0736, "lng": -84.2814 },
-      "tags": ["community", "market"],
-      "_distanceMeters": 0
-    }
-  ]
+  "items": [ ... ]
 }
 ```
 
-**Error Codes**
-- `400` – missing center information
-- `500` – DynamoDB/AWS Location error
+**Errors**
+- `400` – missing center parameters
+- `500` – DynamoDB or AWS Location failure
 
 ---
 
 ### GET `/events/by-user`
-Return the events created by a specific organizer, newest first.
+List events created by a specific organizer.
 
 **Query Parameters**
 - `email` (required)
 - `limit` (optional, default 200, max 1000)
 
-**Success Response** `200`
+**Response** `200`
 ```json
 {
   "count": 3,
-  "items": [ { "eventId": "...", ... } ]
+  "items": [ ... ]
 }
 ```
 
+---
+
+### GET `/events/{eventId}`
+Fetch a single stored (Motion) event by ID.
+
+**Response** `200`
+```json
+{ "event": { "eventId": "event-uuid", ... } }
+```
+
 **Errors**
-- `400` – missing email
-- `500` – DynamoDB error
+- `400` – missing eventId
+- `404` – event not found
+
+---
+
+### GET `/ai-events/{eventId}`
+Fetch a saved AI-sourced event by ID.
+
+**Response** `200`
+```json
+{ "event": { "eventId": "ai-uuid", "title": "...", ... } }
+```
+
+**Errors**
+- `400` – missing eventId
+- `404` – event not found
 
 ---
 
 ### GET `/events/search-ai`
-Use Gemini + AWS Location reverse geocoding to gather nearby events from local tourism/community sources.
+Use Gemini and AWS Location reverse geocoding to gather local events. Saved AI events can later be retrieved via `/ai-events/{eventId}`.
 
 **Required Parameters**
-- Either:
-  - `lat` and `lng`
-  - or `city`, `state`, `country`
-- `start_date` and `end_date` (YYYY-MM-DD)
-- `timezone` (IANA, e.g. `America/New_York`)
+- Either `lat` & `lng`, or `city`, `state`, `country`
+- `start_date`, `end_date` (YYYY-MM-DD)
+- `timezone` (IANA)
 
 **Optional Parameters**
-- `radius_miles` (defaults to 5, max 100)
-- `preferLocal` (`1` (default) or `0`)
+- `radius_miles` (default 5, max 100)
+- `preferLocal` (`1` default, `0` to relax)
 - `debug` (`1` to log candidate sources)
 
-**Sample Request**
-```
-/events/search-ai?lat=34.0736&lng=-84.2814&start_date=2025-10-01&end_date=2025-10-07&timezone=America/New_York&radius_miles=10
-```
-
-**Success Response** `200`
+**Response** `200`
 ```json
 {
   "count": 6,
-  "items": [
-    {
-      "title": "Downtown Art Walk",
-      "start_date": "2025-10-02",
-      "start_time": "18:00",
-      "location": {
-        "venue": "Town Square",
-        "city": "Alpharetta",
-        "state": "GA",
-        "country": "USA"
-      },
-      "tags": ["arts"],
-      "source_url": "https://..."
-    }
-  ]
+  "items": [ { "title": "Downtown Art Walk", ... } ]
 }
 ```
 
-**Error Codes**
-- `400` – missing required place/time parameters
+**Errors**
+- `400` – missing place/time parameters
 - `500` – Gemini or AWS Location failure
 
 ---
 
 ## Notes
-- All Lambda functions are deployed as Node.js 20.x handlers using AWS CDK. Environment variables such as `APP_NAME`, `GEMINI_API_KEY`, `PLACE_INDEX_NAME`, and Cognito IDs are configured during deployment.
-- Authentication endpoints rely entirely on Amazon Cognito user pools; no passwords are stored in DynamoDB.
-- `savedEvents` is reserved in the user profile for future favorites/bookmarks functionality.
+- All Lambdas run on Node.js 20.x and are bundled via `esbuild` using AWS CDK. Relevant environment variables (`APP_NAME`, `USER_POOL_ID`, `GEMINI_API_KEY`, etc.) are injected at deploy time.
+- Cognito user pool handles account verification, password resets, and token issuance. No passwords are stored in DynamoDB.
+- Saved events are tracked as `{ eventId, source }` pairs. When `source === "ai"`, the full event payload is persisted in the `MotionAiEvents` table to support later retrieval.

@@ -129,6 +129,12 @@ class MotionBackendStack extends Stack {
       }
     });
 
+    const userFunctionsEnv = {
+      USERS_TABLE: usersTable.tableName,
+      EVENTS_TABLE: eventsTable.tableName,
+      AI_EVENTS_TABLE: aiEventsTable.tableName
+    };
+
     const customMessageFn = new NodejsFunction(this, 'CustomMessageFunction', {
       runtime: Runtime.NODEJS_20_X,
       entry: 'functions/auth/custom-message.js',
@@ -145,9 +151,67 @@ class MotionBackendStack extends Stack {
 
     userPool.addTrigger(UserPoolOperation.CUSTOM_MESSAGE, customMessageFn);
 
+    const saveEventFn = new NodejsFunction(this, 'SaveEventFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/users/save-event.js',
+      handler: 'handler',
+      environment: userFunctionsEnv,
+      timeout: Duration.seconds(10),
+      bundling: { format: 'esm', target: 'node20', minify: true, sourceMap: false }
+    });
+
+    const removeSavedEventFn = new NodejsFunction(this, 'RemoveSavedEventFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/users/remove-saved-event.js',
+      handler: 'handler',
+      environment: userFunctionsEnv,
+      timeout: Duration.seconds(10),
+      bundling: { format: 'esm', target: 'node20', minify: true, sourceMap: false }
+    });
+
+    const getUserProfileFn = new NodejsFunction(this, 'GetUserProfileFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/users/get-profile.js',
+      handler: 'handler',
+      environment: userFunctionsEnv,
+      timeout: Duration.seconds(10),
+      bundling: { format: 'esm', target: 'node20', minify: true, sourceMap: false }
+    });
+
+    const getSavedEventsFn = new NodejsFunction(this, 'GetSavedEventsFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/users/get-saved-events.js',
+      handler: 'handler',
+      environment: userFunctionsEnv,
+      timeout: Duration.seconds(15),
+      bundling: { format: 'esm', target: 'node20', minify: true, sourceMap: false }
+    });
+
+    const getEventFn = new NodejsFunction(this, 'GetEventFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/events/get-event.js',
+      handler: 'handler',
+      environment: { EVENTS_TABLE: eventsTable.tableName },
+      timeout: Duration.seconds(10),
+      bundling: { format: 'esm', target: 'node20', minify: true, sourceMap: false }
+    });
+
+    const getAiEventFn = new NodejsFunction(this, 'GetAiEventFunction', {
+      runtime: Runtime.NODEJS_20_X,
+      entry: 'functions/events/get-ai-event.js',
+      handler: 'handler',
+      environment: { AI_EVENTS_TABLE: aiEventsTable.tableName },
+      timeout: Duration.seconds(10),
+      bundling: { format: 'esm', target: 'node20', minify: true, sourceMap: false }
+    });
+
     usersTable.grantReadWriteData(signupFn);
     usersTable.grantReadData(signinFn);
     usersTable.grantReadWriteData(confirmSignupFn);
+    usersTable.grantReadWriteData(saveEventFn);
+    usersTable.grantReadWriteData(removeSavedEventFn);
+    usersTable.grantReadData(getUserProfileFn);
+    usersTable.grantReadData(getSavedEventsFn);
 
     signupFn.addToRolePolicy(new PolicyStatement({
       actions: [
@@ -230,6 +294,42 @@ class MotionBackendStack extends Stack {
       integration: new HttpLambdaIntegration('ConfirmSignupIntegration', confirmSignupFn)
     });
 
+    httpApi.addRoutes({
+      path: '/users/saved-events',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('SaveEventIntegration', saveEventFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/users/saved-events',
+      methods: [HttpMethod.DELETE],
+      integration: new HttpLambdaIntegration('RemoveSavedEventIntegration', removeSavedEventFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/users/saved-events',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('GetSavedEventsIntegration', getSavedEventsFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/users/profile',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('GetUserProfileIntegration', getUserProfileFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/events/{eventId}',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('GetEventIntegration', getEventFn)
+    });
+
+    httpApi.addRoutes({
+      path: '/ai-events/{eventId}',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('GetAiEventIntegration', getAiEventFn)
+    });
+
     new CfnOutput(this, 'ApiEndpoint', { value: httpApi.apiEndpoint });
     new CfnOutput(this, 'UsersTableName', { value: usersTable.tableName });
     new CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
@@ -238,6 +338,13 @@ class MotionBackendStack extends Stack {
     // Events Table
     const eventsTable = new Table(this, 'EventsTable', {
       tableName: 'MotionEvents',
+      partitionKey: { name: 'eventId', type: AttributeType.STRING },
+      billingMode: BillingMode.PAY_PER_REQUEST,
+      removalPolicy: RemovalPolicy.RETAIN
+    });
+
+    const aiEventsTable = new Table(this, 'AiEventsTable', {
+      tableName: 'MotionAiEvents',
       partitionKey: { name: 'eventId', type: AttributeType.STRING },
       billingMode: BillingMode.PAY_PER_REQUEST,
       removalPolicy: RemovalPolicy.RETAIN
@@ -263,6 +370,7 @@ class MotionBackendStack extends Stack {
 
     const commonEventEnv = {
       EVENTS_TABLE: eventsTable.tableName,
+      AI_EVENTS_TABLE: aiEventsTable.tableName,
       PLACE_INDEX_NAME: placeIndex.indexName
     };
 
@@ -275,6 +383,9 @@ class MotionBackendStack extends Stack {
       bundling: { format: 'esm', target: 'node20', minify: true }
     });
     eventsTable.grantReadWriteData(createEventFn);
+    eventsTable.grantReadData(saveEventFn);
+    eventsTable.grantReadData(getSavedEventsFn);
+    eventsTable.grantReadData(getEventFn);
     // Allow geocoding from Amazon Location
     createEventFn.addToRolePolicy(new PolicyStatement({
       actions: ['geo:SearchPlaceIndexForText'],
@@ -292,6 +403,9 @@ class MotionBackendStack extends Stack {
       bundling: { format: 'esm', target: 'node20', minify: true }
     });
     eventsTable.grantReadData(searchEventsFn);
+    aiEventsTable.grantReadWriteData(saveEventFn);
+    aiEventsTable.grantReadData(getSavedEventsFn);
+    aiEventsTable.grantReadData(getAiEventFn);
     searchEventsFn.addToRolePolicy(new PolicyStatement({
       actions: ['geo:SearchPlaceIndexForText'],
       resources: [
@@ -367,6 +481,7 @@ class MotionBackendStack extends Stack {
     new CfnOutput(this, 'SearchAiFunctionUrl', { value: searchAiFnUrl.url });
 
     new CfnOutput(this, 'EventsTableName', { value: eventsTable.tableName });
+    new CfnOutput(this, 'AiEventsTableName', { value: aiEventsTable.tableName });
   }
 }
 
