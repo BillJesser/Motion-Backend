@@ -334,9 +334,11 @@ Create a community event in `MotionEvents` with geohash metadata.
 Query stored events near a location.
 
 **Query Parameters**
-- `lat` & `lng` (preferred) or `address`/`zip`
+- `lat` & `lng` (preferred) or `address`/`zip` or `city`/`state` (+ optional `country`)
 - `radiusMiles` (default 10)
-- `startTime`, `endTime` (ISO 8601)
+- `startTime`, `endTime` (ISO 8601) **or** `date` (`YYYY-MM-DD`) with optional `time` (`HH:mm`)
+  - when using `date`/`time`, provide `windowMinutes` to adjust the search window (default 3 hours when `time` is supplied, full day otherwise)
+  - optionally supply `endDate`/`endTime` (same formats) for an explicit range
 - `tags` (comma-separated)
 
 **Success Response** `200`
@@ -344,6 +346,10 @@ Query stored events near a location.
 {
   "center": { "lat": 34.0736, "lng": -84.2814 },
   "radiusMiles": 15,
+  "timeRange": {
+    "start": "2025-10-01T15:00:00.000Z",
+    "end": "2025-10-01T18:00:00.000Z"
+  },
   "count": 2,
   "items": [ ... ]
 }
