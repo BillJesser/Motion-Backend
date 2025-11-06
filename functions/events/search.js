@@ -150,19 +150,26 @@ export const handler = async (event) => {
     for (const p of prefixes) {
       const keyCond = ['gh5 = :gh'];
       const exprValues = { ':gh': p };
+      const exprNames = {};
       // Query by start time to reduce scan width; overlap checks are filtered below
       if (startEpoch && endEpoch) {
-        keyCond.push('dateTime BETWEEN :start AND :end');
+        keyCond.push('#dt BETWEEN :start AND :end');
         exprValues[':start'] = startEpoch; exprValues[':end'] = endEpoch;
+        exprNames['#dt'] = 'dateTime';
       } else if (startEpoch) {
-        keyCond.push('dateTime >= :start'); exprValues[':start'] = startEpoch;
+        keyCond.push('#dt >= :start'); exprValues[':start'] = startEpoch;
+        exprNames['#dt'] = 'dateTime';
       }
-      const q = new QueryCommand({
+      const queryInput = {
         TableName: TABLE,
         IndexName: 'GeoTime',
         KeyConditionExpression: keyCond.join(' AND '),
         ExpressionAttributeValues: exprValues
-      });
+      };
+      if (Object.keys(exprNames).length > 0) {
+        queryInput.ExpressionAttributeNames = exprNames;
+      }
+      const q = new QueryCommand(queryInput);
       const out = await ddb.send(q);
       results.push(...(out.Items || []));
     }
