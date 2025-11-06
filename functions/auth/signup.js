@@ -7,6 +7,7 @@ const cognito = new CognitoIdentityProviderClient({});
 const TABLE = process.env.USERS_TABLE || '';
 const USER_POOL_ID = process.env.USER_POOL_ID || '';
 const USER_POOL_CLIENT_ID = process.env.USER_POOL_CLIENT_ID || '';
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function normalizePasswordError(rawMessage) {
   if (!rawMessage) {
@@ -14,6 +15,21 @@ function normalizePasswordError(rawMessage) {
   }
   const cleaned = rawMessage.replace(/^Password did not conform with policy:\s*/i, '').trim();
   return cleaned || 'Password does not meet complexity requirements';
+}
+
+function normalizeEmailError(rawMessage) {
+  if (!rawMessage) {
+    return 'Email must be a valid address';
+  }
+  const cleaned = rawMessage
+    .replace(/^1 validation error detected:\s*/i, '')
+    .replace(/Value at 'username' failed to satisfy constraint:\s*/i, '')
+    .replace(/Value at 'email' failed to satisfy constraint:\s*/i, '')
+    .trim();
+  if (/[^@\s]+@[^@\s]+/.test(cleaned)) {
+    return cleaned;
+  }
+  return 'Email must be a valid address';
 }
 
 function response(statusCode, body) {
@@ -41,6 +57,12 @@ export const handler = async (event) => {
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
+      return response(400, {
+        message: 'Invalid email address',
+        reason: 'Email must include an @ symbol and domain'
+      });
+    }
 
     const existingProfile = await dynamo.send(new GetCommand({
       TableName: TABLE,
@@ -64,6 +86,15 @@ export const handler = async (event) => {
     } catch (err) {
       if (err?.name === 'UsernameExistsException') {
         return response(409, { message: 'User already exists' });
+      }
+      if (
+        err?.name === 'InvalidParameterException' &&
+        String(err?.message || '').toLowerCase().includes('email')
+      ) {
+        return response(400, {
+          message: 'Invalid email address',
+          reason: normalizeEmailError(err?.message)
+        });
       }
       if (
         err?.name === 'InvalidPasswordException' ||
