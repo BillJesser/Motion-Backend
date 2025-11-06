@@ -26,10 +26,24 @@ Register a user with Cognito and create a profile record. A verification email i
 }
 ```
 
-**Errors**
-- `400` – missing email or password
-- `409` – user already exists
-- `500` – Cognito or DynamoDB failure
+**Validation Errors** `400`
+```json
+{
+  "message": "Invalid email address",
+  "reason": "Email must include an @ symbol and domain"
+}
+```
+```json
+{
+  "message": "Password does not meet requirements",
+  "reason": "Password must have uppercase, lowercase, number, and symbol characters"
+}
+```
+
+**Other Errors**
+- `400` - email and password are required
+- `409` - user already exists
+- `500` - Cognito or DynamoDB failure
 
 ---
 
@@ -52,14 +66,14 @@ Confirm the verification code emailed by Cognito. Marks the user profile as veri
 ```
 
 **Errors**
-- `400` – missing email/code or invalid/expired code
-- `404` – user not found
-- `500` – Cognito/DynamoDB error
+- `400` - email and code are required or the code is invalid/expired
+- `404` - user not found
+- `500` - Cognito or DynamoDB failure
 
 ---
 
 ### POST `/auth/signin`
-Authenticate via Cognito. Returns Cognito tokens and stored profile data (including saved events).
+Authenticate against Cognito and return Cognito tokens plus the stored profile snapshot.
 
 **Request Body**
 ```json
@@ -83,17 +97,16 @@ Authenticate via Cognito. Returns Cognito tokens and stored profile data (includ
     "savedEvents": [
       { "eventId": "ev-123", "source": "motion" },
       { "eventId": "ai-456", "source": "ai" }
-    ],
-    "isVerified": true
+    ]
   }
 }
 ```
 
 **Errors**
-- `400` – missing credentials
-- `401` – invalid credentials
-- `403` – account not verified
-- `500` – Cognito error
+- `400` - email and password are required
+- `401` - invalid credentials
+- `403` - account is not verified or Cognito returned a challenge flow
+- `500` - Cognito error while initiating auth
 
 ---
 
@@ -115,8 +128,8 @@ Send a password reset code. Cognito responds identically whether the account exi
 ```
 
 **Errors**
-- `400` – missing email
-- `500` – Cognito error
+- `400` - email is required
+- `500` - Cognito error while initiating the reset
 
 ---
 
@@ -138,15 +151,15 @@ Complete the password reset using the emailed code.
 ```
 
 **Errors**
-- `400` – missing or invalid fields
-- `500` – Cognito error
+- `400` - email, code, or newPassword missing, or code is invalid/expired
+- `500` - Cognito error while finalising the reset
 
 ---
 
 ## Users
 
 ### GET `/users/profile`
-Retrieve a user profile (no Cognito credentials required).
+Retrieve a user profile without Cognito credentials. Password fields are never returned.
 
 **Query Parameters**
 - `email` (required)
@@ -169,14 +182,14 @@ Retrieve a user profile (no Cognito credentials required).
 ```
 
 **Errors**
-- `400` – missing email
-- `404` – user not found
-- `500` – DynamoDB error
+- `400` - email is required
+- `404` - user not found
+- `500` - DynamoDB error
 
 ---
 
 ### POST `/users/saved-events`
-Save an event to the user’s profile. Motion events must already exist in `MotionEvents`; AI events are persisted in `MotionAiEvents` when saved.
+Save an event to the user profile. Motion events must already exist in `MotionEvents`; AI events are upserted into `MotionAiEvents` when saved.
 
 **Request Body (motion event)**
 ```json
@@ -192,6 +205,7 @@ Save an event to the user’s profile. Motion events must already exist in `Motion
 {
   "email": "user@example.com",
   "source": "ai",
+  "eventId": "optional-custom-id",
   "event": {
     "title": "Downtown Art Walk",
     "description": "Gallery crawl",
@@ -224,22 +238,24 @@ Save an event to the user’s profile. Motion events must already exist in `Motion
 ```
 
 **Errors**
-- `400` – missing fields or invalid payload
-- `403` – account not verified
-- `404` – user (or motion event) not found
-- `500` – DynamoDB error
+- `400` - email or source missing
+- `400` - eventId missing for motion events
+- `400` - AI event missing required fields (`title`, `start_date`, `timezone`, `source_url`)
+- `403` - account is not verified
+- `404` - user not found or motion event not found
+- `500` - DynamoDB error or failure while persisting the AI event
 
 ---
 
 ### DELETE `/users/saved-events`
-Remove an event from the user’s saved list.
+Remove an event from the user saved list. If multiple sources use the same ID, pass `source` to delete the correct entry.
 
 **Request Body**
 ```json
 {
   "email": "user@example.com",
   "eventId": "event-uuid",
-  "source": "motion" // optional, used when both sources share an ID
+  "source": "motion"
 }
 ```
 
@@ -251,15 +267,23 @@ Remove an event from the user’s saved list.
 }
 ```
 
+**Event Not Present** `200`
+```json
+{
+  "message": "Event not found in saved list",
+  "savedEvents": [ ... ]
+}
+```
+
 **Errors**
-- `400` – missing email or eventId
-- `404` – user not found
-- `500` – DynamoDB error
+- `400` - email or eventId missing
+- `404` - user not found
+- `500` - DynamoDB error
 
 ---
 
 ### GET `/users/saved-events`
-Return the user’s saved events with expanded details fetched from `MotionEvents` and `MotionAiEvents`.
+Return the user saved events with expanded details fetched from `MotionEvents` and `MotionAiEvents`.
 
 **Query Parameters**
 - `email` (required)
@@ -272,21 +296,21 @@ Return the user’s saved events with expanded details fetched from `MotionEvents`
     {
       "eventId": "event-uuid",
       "source": "motion",
-      "event": { "eventId": "event-uuid", "name": "City Market", ... }
+      "event": { "eventId": "event-uuid", "name": "City Market" }
     },
     {
       "eventId": "9f6567d0-...",
       "source": "ai",
-      "event": { "title": "Downtown Art Walk", ... }
+      "event": { "title": "Downtown Art Walk" }
     }
   ]
 }
 ```
 
 **Errors**
-- `400` – missing email
-- `404` – user not found
-- `500` – DynamoDB error
+- `400` - email is required
+- `404` - user not found
+- `500` - DynamoDB error
 
 ---
 
@@ -316,6 +340,8 @@ Create a community event in `MotionEvents` with geohash metadata.
 }
 ```
 
+`endDateTime` is required unless you provide a numeric `endTime` (epoch seconds). If `coordinates` are omitted, the service attempts to geocode the location values.
+
 **Success Response** `201`
 ```json
 {
@@ -325,20 +351,20 @@ Create a community event in `MotionEvents` with geohash metadata.
 ```
 
 **Errors**
-- `400` – missing required fields or ungodable address
-- `500` – DynamoDB or AWS Location failure
+- `400` - missing required fields, invalid ISO-8601 start/end, or location could not be geocoded
+- `500` - DynamoDB or AWS Location failure
 
 ---
 
 ### GET `/events/search`
-Query stored events near a location.
+Query stored events near a location and within an optional time window.
 
 **Query Parameters**
-- `lat` & `lng` (preferred) or `address`/`zip` or `city`/`state` (+ optional `country`)
+- `lat` & `lng` (preferred) or `address`/`zip` or `city`/`state` (`country` optional)
 - `radiusMiles` (default 10)
 - `startTime`, `endTime` (ISO 8601) **or** `date` (`YYYY-MM-DD`) with optional `time` (`HH:mm`)
-  - when using `date`/`time`, provide `windowMinutes` to adjust the search window (default 3 hours when `time` is supplied, full day otherwise)
-  - optionally supply `endDate`/`endTime` (same formats) for an explicit range
+  - when using `date`/`time`, supply `windowMinutes` to adjust the search window (default 3 hours when `time` is supplied, full day otherwise)
+  - optionally supply `endDate`/`endTime` (same formats) to control the range explicitly
 - `tags` (comma-separated)
 
 **Success Response** `200`
@@ -356,8 +382,8 @@ Query stored events near a location.
 ```
 
 **Errors**
-- `400` – missing center parameters
-- `500` – DynamoDB or AWS Location failure
+- `400` - location parameters missing or time parameters invalid
+- `500` - DynamoDB or AWS Location failure
 
 ---
 
@@ -379,7 +405,7 @@ List events created by a specific organizer.
 ---
 
 ### GET `/events/{eventId}`
-Fetch a single stored (Motion) event by ID.
+Fetch a single stored Motion event by ID.
 
 **Response** `200`
 ```json
@@ -387,8 +413,8 @@ Fetch a single stored (Motion) event by ID.
 ```
 
 **Errors**
-- `400` – missing eventId
-- `404` – event not found
+- `400` - missing eventId
+- `404` - event not found
 
 ---
 
@@ -397,12 +423,12 @@ Fetch a saved AI-sourced event by ID.
 
 **Response** `200`
 ```json
-{ "event": { "eventId": "ai-uuid", "title": "...", ... } }
+{ "event": { "eventId": "ai-uuid", "title": "..." } }
 ```
 
 **Errors**
-- `400` – missing eventId
-- `404` – event not found
+- `400` - missing eventId
+- `404` - event not found
 
 ---
 
@@ -410,30 +436,48 @@ Fetch a saved AI-sourced event by ID.
 Use Gemini and AWS Location reverse geocoding to gather local events. Saved AI events can later be retrieved via `/ai-events/{eventId}`.
 
 **Required Parameters**
-- Either `lat` & `lng`, or `city`, `state`, `country`
+- Either (`lat` and `lng`) or (`city`, `state`, `country`)
 - `start_date`, `end_date` (YYYY-MM-DD)
 - `timezone` (IANA)
 
 **Optional Parameters**
-- `radius_miles` (default 5, max 100)
-- `preferLocal` (`1` default, `0` to relax)
-- `debug` (`1` to log candidate sources)
+- `radius_miles` (default 5). Also accepts `radiusMiles`, `radius`, or `radius_km` (converted to miles).
+- `preferLocal` (`1` default, `0` to allow broader sources)
+- `debug` (`1` to emit verbose logs)
+
+When coordinates are provided, the service reverse geocodes them to fill any missing city/state/country values before calling Gemini.
 
 **Response** `200`
 ```json
 {
   "count": 6,
-  "items": [ { "title": "Downtown Art Walk", ... } ]
+  "items": [
+    {
+      "title": "Downtown Art Walk",
+      "start_date": "2025-10-02",
+      "start_time": "18:00",
+      "timezone": "America/New_York",
+      "location": {
+        "venue": "Town Square",
+        "city": "Alpharetta",
+        "state": "GA",
+        "country": "USA"
+      },
+      "source_url": "https://example.com/events/art-walk",
+      "tags": ["arts", "community"]
+    }
+  ]
 }
 ```
 
 **Errors**
-- `400` – missing place/time parameters
-- `500` – Gemini or AWS Location failure
+- `400` - missing location or date/time parameters
+- `500` - Gemini or AWS Location failure
 
 ---
 
 ## Notes
-- All Lambdas run on Node.js 20.x and are bundled via `esbuild` using AWS CDK. Relevant environment variables (`APP_NAME`, `USER_POOL_ID`, `GEMINI_API_KEY`, etc.) are injected at deploy time.
-- Cognito user pool handles account verification, password resets, and token issuance. No passwords are stored in DynamoDB.
-- Saved events are tracked as `{ eventId, source }` pairs. When `source === "ai"`, the full event payload is persisted in the `MotionAiEvents` table to support later retrieval.
+- All Lambdas run on Node.js 20.x and are bundled via `esbuild` using AWS CDK. Environment variables (`APP_NAME`, `USER_POOL_ID`, `GEMINI_API_KEY`, etc.) are injected at deploy time.
+- Cognito handles account verification, password resets, and token issuance. No passwords are stored in DynamoDB tables.
+- Saved events are stored as `{ eventId, source }` pairs. When `source === "ai"`, the full event payload lives in the `MotionAiEvents` table so it can be retrieved later.
+
