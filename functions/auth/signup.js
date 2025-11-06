@@ -8,6 +8,14 @@ const TABLE = process.env.USERS_TABLE || '';
 const USER_POOL_ID = process.env.USER_POOL_ID || '';
 const USER_POOL_CLIENT_ID = process.env.USER_POOL_CLIENT_ID || '';
 
+function normalizePasswordError(rawMessage) {
+  if (!rawMessage) {
+    return 'Password does not meet complexity requirements';
+  }
+  const cleaned = rawMessage.replace(/^Password did not conform with policy:\s*/i, '').trim();
+  return cleaned || 'Password does not meet complexity requirements';
+}
+
 function response(statusCode, body) {
   return {
     statusCode,
@@ -56,6 +64,15 @@ export const handler = async (event) => {
     } catch (err) {
       if (err?.name === 'UsernameExistsException') {
         return response(409, { message: 'User already exists' });
+      }
+      if (
+        err?.name === 'InvalidPasswordException' ||
+        (err?.name === 'InvalidParameterException' && String(err?.message || '').toLowerCase().includes('password'))
+      ) {
+        return response(400, {
+          message: 'Password does not meet requirements',
+          reason: normalizePasswordError(err?.message)
+        });
       }
       console.error('SignUp failed', err);
       return response(500, { message: 'Unable to create user' });

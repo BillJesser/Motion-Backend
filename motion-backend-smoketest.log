@@ -1,0 +1,124 @@
+{
+  "accessToken": "eyJraWQiOiJUUkgyTFFsYWp3em9GNlpDOXkxMEtwNWcwWW5DTnBDeHVEOVpPUnRMeUtVPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJhMTliZDU5MC1lMGYxLTcwMzQtZDE3NS1iOTZiZWM4N2EzYzEiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAudXMtZWFzdC0yLmFtYXpvbmF3cy5jb21cL3VzLWVhc3QtMl81ME81TElFZVkiLCJjbGllbnRfaWQiOiIyZzB2NzQzMHA0ZWRydWx2bWw2cThza2hzNiIsIm9yaWdpbl9qdGkiOiJkZGI2NDE1YS03Y2VkLTQ2MjktOGY0MC1hYjFkMzhmNjg3N2EiLCJldmVudF9pZCI6ImI5NTExNThjLTAwNjUtNGEwYS1iZDA2LTkzYjU4Nzg0ZWViMyIsInRva2VuX3VzZSI6ImFjY2VzcyIsInNjb3BlIjoiYXdzLmNvZ25pdG8uc2lnbmluLnVzZXIuYWRtaW4iLCJhdXRoX3RpbWUiOjE3NTk0Mzg2OTgsImV4cCI6MTc1OTQ0MjI5OCwiaWF0IjoxNzU5NDM4Njk4LCJqdGkiOiI4MThlZTNkNS1kOWY2LTQzZmYtOGM0YS1lMjY4ZGVjM2YzMjciLCJ1c2VybmFtZSI6ImExOWJkNTkwLWUwZjEtNzAzNC1kMTc1LWI5NmJlYzg3YTNjMSJ9.cQE-nTXENQRg40wqi31x587BTmJDxYZ9zpmue0NhjSGfJ8BUYHoMWKY8TaCBha4Z6dYDGgy2ku62uBQJpA6c8P2vG4-TQWsJoQsbsWfvK-itukzVMdSIiagyX9FPehOFcbNk-QpLwqf6HujYQNuI8H0_zjF9iEFE3XjNwVVydjgD1MhoMhW8lT2mx0MqVKUR86ecVb53y8NeolmQ6xW0zpe08eeNRVKrTekRx6PdfsUfdZ2L8rXcxXcaCD3j5rKv_u09brhFSDJBBnwb_wkYDEmQ4hjlCia2pSGsYolACDFLbAYVkLVRloClJE1ZsS9xTj9JWHDzx-BejOvjtI3_Zg",
+  "expiresIn": 3600,
+  "idToken": "eyJraWQiOiIyTUFNeWNWalA3MDJqZTVoMmdzYkM1cEtJdnA2aUxwWFkzQktWZFcwcmpjPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJhMTliZDU5MC1lMGYxLTcwMzQtZDE3NS1iOTZiZWM4N2EzYzEiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiaXNzIjoiaHR0cHM6XC9cL2NvZ25pdG8taWRwLnVzLWVhc3QtMi5hbWF6b25hd3MuY29tXC91cy1lYXN0LTJfNTBPNUxJRWVZIiwiY29nbml0bzp1c2VybmFtZSI6ImExOWJkNTkwLWUwZjEtNzAzNC1kMTc1LWI5NmJlYzg3YTNjMSIsIm9yaWdpbl9qdGkiOiJkZGI2NDE1YS03Y2VkLTQ2MjktOGY0MC1hYjFkMzhmNjg3N2EiLCJhdWQiOiIyZzB2NzQzMHA0ZWRydWx2bWw2cThza2hzNiIsImV2ZW50X2lkIjoiYjk1MTE1OGMtMDA2NS00YTBhLWJkMDYtOTNiNTg3ODRlZWIzIiwidG9rZW5fdXNlIjoiaWQiLCJhdXRoX3RpbWUiOjE3NTk0Mzg2OTgsImV4cCI6MTc1OTQ0MjI5OCwiaWF0IjoxNzU5NDM4Njk4LCJqdGkiOiJiZGI2NzFkYy0xZjA0LTQzZDYtYTcxMi05ODkxNTRhYzM0YjkiLCJlbWFpbCI6ImJpbGx5Ym9zczRAb3V0bG9vay5jb20ifQ.Mx7EBLAOQOM_kIr4LqidhBYE35MwAf1sIbmTQKKN1ss6a6C1Jp0-QEsen46QFMqB93AiZ8BMoffEHLiu6tAIQqzLSRE_ZkPId5rV0l7-Dx_uVWZ9SAB7c4Ut_fHSHIsrL5YKsktiQ_QpPXeojPQrHA_WEQ0uW_1Vz0zKC6jfbX1X68ghPhjM_jvnFUES6xS_2SEUpLwPm0sWVuIt8Wgm1cHmeCHk1t2u735H7GoTHOam8LlxS44LMw14daTaV67vuJU1Qc7i1q2-zd_SOks0ga3bi6TMks-cn-tuWmh_iBNOaN1Zr56UVUwmzKKuLZswV8A1e2uwElq2YF7Tr_EYyw",
+  "refreshToken": "eyJjdHkiOiJKV1QiLCJlbmMiOiJBMjU2R0NNIiwiYWxnIjoiUlNBLU9BRVAifQ.ARz14ihek4HM5Kx-xqiqlYcebxA_HXsvZAmWSt-HMH7QoVx4sQekaVAzEZXMlda6iML9vw_dItQKzEzYozSRK6d3ZfYrcKW6MA0TnCOcmwm-3T6c4yoRaUZwU4NAKNR2T3LFuA03QRZskW_9QC0pUTjLDc1fPJzqipx2IaT5Qo3Rd7hNs4i8_5w64eGghYIo7MxR1DdjuY08EbBTrZXGqxkQIznE0lDik9xdLSNP3KBGEa3R6gZE7pA-5T03Daz8c3euI6oFdrMy91R1NQrJCRYO7SDbivGxLD3Uw0mRc9uzO8JBm0JOjuD5LJYJoSs9K3IOn0Uz6JXEjWO9fJ2dBw.r95FuZiKpAlpTLSb.5XAYg_AHHGfQlmjxoegJGLMqPlwIri8CjTrcAMniyHGJbpt-PXiduOh-xx7Ft54GRhY1AkVRTL8LDNKdlxoAeLYsXDD_tU6CoOgPHvltxoo2niGa0Vhq6AahMFuLof1afzYBiJjQwkE30e41nII37If7P3mC35ytPZqJyQEA8VX1G0Opt1qkuqTjKtz3igil8IzVde4jSw3tiABzX8KK8ZOsQXQkh9uNLlX29ZhPRA8gLNs4riIe6nBzYjVpXDtHr2jR7_Lk9sbCNFWQwZQPyXeYm5yU18GPTAj6Vy0XEkAMB5GKdA4t-t4-9w1UWq_gZmZH6xFfEhBcEuMncDmDx1KKx-oenrsECHeCJeG1ZZMwemttqa-2F1_3JsnaMDN14I_-B7RZLQ1xsmffNU8doo22XJu4za4wtVlEI0sMjZzOG-s0Z1ob3faUCCiCHbWaSCMt0oQGEEdp-n4Gcjp2cfFbX79phM5AgEPKjL9-fJRoMu2SXlaRiT-oAXTbKLmi9DZ-10bCQa5IgMSjx_ia2LMR4BzFV4lBEH3ONbZCaJK5JfIteHWcygwH4II2Yf7GUaL9TWjBW6HFPd8Zc5s-z_dHI7q7brA0gw8BUOeP1Lh-E06GvIAV9bYPxGAmdFnBSbhrHaj8rbnKNEaI67Hmn9_g66VTiacEA4tVBM3_manEO5nJ8Kz5olglTRQIHP20NEAHFRojY3SgHAuf2L8TBbb_tcmgIgzddN0Eu57kUH6mrfjR0Gqa9sGu5ebc7zec0N-WWNDYANf0GNFPdWoivS70meo7RYn0L1MNa8r-NxvPSKAr-20zuUrDYBdjnOMn1uyH_K1oYLxhbZsNOj5bxUxWbkw4YgQyK_Np3UeWspaRbA4i_ouXvIpUewfgEtGs7xRIkMCndXiVLnjj1UxAF_97DXZhdT41jIXE53o38-mH24G7WFmCoZJKqbZpRs1qTOgPkLiKxQ19BG5RO5GXovNI6l2-5_GwEAbuXP3SwgGCZMoB6CQAjLfkc93sM7KafVTQWoDEmCG9AYDh05Us-7J-FSFwForNfWBH9VnnhDn_tyjhq3tMM7-WmkdKKBtLwOQrisZiF1jcXVEd6Hhs_g68Q_E6RsB1MdJ3KdwH0BhxyxxEgVTe2Ltm_g10QTT5Cb1Q01rAIY-YZSONDN9Rj1wAn3SJJlJKIo5YCUpUmZt72ic537h65Lf63RBLsOI6h_LtSTJDcOvSX_dImFisUxgLI3wR0Ppibi-CSdx48GrkIOAQuiTifg0RMnyDG1LmT2fRKJ8hX6Xan0Fty9ltLC1dmy19H7h9IgTIuD7Ch8Y-yGUsvhRq12wBxQ.T-4o9JDPjIdfeRShrbx9JA",
+  "tokenType": "Bearer",
+  "user": {
+    "email": "billyboss4@outlook.com",
+    "savedEvents": [],
+    "userId": "a19bd590-e0f1-7034-d175-b96bec87a3c1"
+  }
+}
+
+{
+  "message": "Event saved",
+  "savedEvents": [
+    {
+      "eventId": "365a5596-a6cf-46ee-9675-63017035d7b6",
+      "source": "motion"
+    }
+  ]
+}
+
+{
+  "message": "Event saved",
+  "savedEvents": [
+    {
+      "eventId": "365a5596-a6cf-46ee-9675-63017035d7b6",
+      "source": "motion"
+    },
+    {
+      "eventId": "27882065-dfe8-4f5e-a96c-346b590a5e70",
+      "source": "ai"
+    }
+  ]
+}
+
+{
+  "profile": {
+    "cognitoSub": "a19bd590-e0f1-7034-d175-b96bec87a3c1",
+    "createdAt": "2025-09-29T23:17:01.279Z",
+    "email": "billyboss4@outlook.com",
+    "isVerified": true,
+    "savedEvents": [
+      {
+        "eventId": "365a5596-a6cf-46ee-9675-63017035d7b6",
+        "source": "motion"
+      },
+      {
+        "eventId": "27882065-dfe8-4f5e-a96c-346b590a5e70",
+        "source": "ai"
+      }
+    ],
+    "updatedAt": "2025-10-02T20:58:21.403Z"
+  }
+}
+
+{
+  "count": 2,
+  "items": [
+    {
+      "event": {
+        "coordinates": {
+          "lat": 39.967,
+          "lng": -82.789
+        },
+        "createdByEmail": "alice@example.com",
+        "dateTime": 1759327200,
+        "description": "Help clean the park.",
+        "eventId": "365a5596-a6cf-46ee-9675-63017035d7b6",
+        "geohash": "dpj5k5",
+        "gh5": "dpj5k",
+        "location": {
+          "address": "123 Main St",
+          "city": "Columbus",
+          "state": "OH",
+          "zip": "43004"
+        },
+        "name": "Community Cleanup",
+        "photoUrls": [
+          "https://example.com/photo1.jpg"
+        ]
+      },
+      "eventId": "365a5596-a6cf-46ee-9675-63017035d7b6",
+      "source": "motion"
+    },
+    {
+      "event": {
+        "createdAt": "2025-10-02T20:58:21.403Z",
+        "description": "Gallery crawl with late-night hours.",
+        "end_date": "2025-10-02",
+        "end_time": "21:00",
+        "eventId": "27882065-dfe8-4f5e-a96c-346b590a5e70",
+        "location": {
+          "city": "Alpharetta",
+          "country": "USA",
+          "state": "GA",
+          "venue": "Town Square"
+        },
+        "media": null,
+        "organizer": null,
+        "source_url": "https://example.com/events/art-walk",
+        "start_date": "2025-10-02",
+        "start_time": "18:00",
+        "tags": [
+          "arts",
+          "community"
+        ],
+        "ticket_info": null,
+        "timezone": "America/New_York",
+        "title": "Downtown Art Walk",
+        "updatedAt": "2025-10-02T20:58:21.403Z"
+      },
+      "eventId": "27882065-dfe8-4f5e-a96c-346b590a5e70",
+      "source": "ai"
+    }
+  ]
+}
+
+{
+  "count": 0,
+  "items": []
+}
+
