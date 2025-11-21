@@ -159,7 +159,9 @@ function buildGeminiUserPrompt({ city, region_or_state, country, start_date, end
     '',
     'Instructions:',
     '- Only include events occurring within the requested dates (inclusive) and inside the radius.',
-    '- Every event must cite the same page you inspected as source_url.',
+    '- Use Google Search tool results to open an event page and verify the date/time/location before adding it.',
+    '- Every event must cite the exact page you inspected as source_url.',
+    '- The source_url must be a direct, working event-detail link on the official/local host (not homepages, search results, redirect URLs, or ticketing aggregators). Skip the event if you cannot find that exact page.',
     '- Favor community calendars, civic/tourism sites, local news, and avoid large ticketing aggregators.',
     '- Aim for roughly 10 qualifying events when the sources exist.',
     '- Format dates as YYYY-MM-DD and times as HH:MM (24h).',
@@ -294,7 +296,9 @@ Rules:
 - Normalize: dates = YYYY-MM-DD, times = HH:MM (24h).
 - Strongly prefer LOCAL community sources: city/county (.gov/.us/.net), libraries, parks & recreation, community/downtown/chamber, museums/arts, tourism/visitors/CVB, and local news sites.
 - Deprioritize large aggregators (Eventbrite, Ticketmaster, Meetup, Bandsintown, Facebook, Instagram) unless no local source exists.
-- Each event must include a verifiable source_url from the consulted site.
+- Actively click through Google Search results to confirm the event page exists and visibly lists its date/time/venue before including it.
+- Each event must include a verifiable source_url from that same inspected page.
+- The source_url must be a live, fully-qualified event-detail URL on the official/local domain (never search results, generic homepages, redirect wrappers, or ticketing aggregators). If you cannot open or verify the page, omit the event.
 - Aim to return 10 distinct events when available; include credible events even if some details are missing.
 - De-duplicate by (title + start_date + venue).
 - If any field is unknown, omit the field rather than guessing.
